@@ -1,18 +1,21 @@
 import { Ionicons } from '@expo/vector-icons';
 import { Image } from 'expo-image';
+import { useRouter } from 'expo-router';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { Pressable, StyleSheet, Text, View } from 'react-native';
 
 const PURPLE = '#9B87F0';
 
 export default function HomeScreen() {
+  const router = useRouter();
+
   return (
     <SafeAreaView style={styles.safeArea}>
       <View style={styles.page}>
         <View style={styles.header}>
           <Ionicons name="menu" size={26} color="#000" style={styles.menuIcon} />
           <Image
-            source={require('../../assets/images/ezsplit-logo.png')}
+            source={require('../../../assets/images/ezsplit-logo.png')}
             style={styles.logo}
             contentFit="contain"
           />
@@ -24,7 +27,7 @@ export default function HomeScreen() {
           <Pressable style={styles.button}>
             <Text style={styles.buttonText}>Instant settlement</Text>
           </Pressable>
-          <Pressable style={styles.button}>
+          <Pressable style={styles.button} onPress={() => router.push('/create-group-settlement')}>
             <Text style={styles.buttonText}>Create group settlement</Text>
           </Pressable>
         </View>
