@@ -9,9 +9,9 @@ const PILL_GRAY = '#EFEFEF';
 
 export default function CreateGroupSettlementScreen() {
   const router = useRouter();
-  const [settlementName, setSettlementName] = useState('Friday Night Out');
-  const [groupName, setGroupName] = useState('Group 1');
-  const [members, setMembers] = useState(['Imran', 'Ali']);
+  const [settlementName, setSettlementName] = useState('');
+  const [groupName, setGroupName] = useState('');
+  const [members, setMembers] = useState<string[]>([]);
 
   const addMember = () => setMembers((prev) => [...prev, '']);
   const updateMember = (index: number, text: string) =>
@@ -37,6 +37,8 @@ export default function CreateGroupSettlementScreen() {
             style={styles.pillInput}
             value={settlementName}
             onChangeText={setSettlementName}
+            placeholder="Enter your settlement name"
+            placeholderTextColor="#999"
             textAlign="center"
           />
 
@@ -45,6 +47,8 @@ export default function CreateGroupSettlementScreen() {
             style={styles.pillInput}
             value={groupName}
             onChangeText={setGroupName}
+            placeholder="Enter Group Name"
+            placeholderTextColor="#999"
             textAlign="center"
           />
 
@@ -57,6 +61,7 @@ export default function CreateGroupSettlementScreen() {
                   value={member}
                   onChangeText={(text) => updateMember(index, text)}
                   placeholder="Member name"
+                  placeholderTextColor="#999"
                   textAlign="center"
                 />
                 <Pressable onPress={() => removeMember(index)} hitSlop={8} style={styles.removeMemberButton}>
