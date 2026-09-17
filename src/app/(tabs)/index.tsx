@@ -1,8 +1,8 @@
 import { Ionicons } from '@expo/vector-icons';
 import { Image } from 'expo-image';
 import { useRouter } from 'expo-router';
-import { SafeAreaView } from 'react-native-safe-area-context';
 import { Pressable, StyleSheet, Text, View } from 'react-native';
+import { SafeAreaView } from 'react-native-safe-area-context';
 
 const PURPLE = '#9B87F0';
 
@@ -24,7 +24,7 @@ export default function HomeScreen() {
         <Text style={styles.welcome}>Welcome!</Text>
 
         <View style={styles.buttons}>
-          <Pressable style={styles.button}>
+          <Pressable style={styles.button} onPress={() => router.push('/upload-file')}>
             <Text style={styles.buttonText}>Instant settlement</Text>
           </Pressable>
           <Pressable style={styles.button} onPress={() => router.push('/create-group-settlement')}>
