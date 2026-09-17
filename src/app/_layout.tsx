@@ -5,6 +5,8 @@ export default function RootLayout() {
     <Stack screenOptions={{ headerShown: false }}>
       <Stack.Screen name="(tabs)" />
       <Stack.Screen name="create-group-settlement" />
+      <Stack.Screen name="upload-receipt" />
+      <Stack.Screen name="upload-file" />
     </Stack>
   );
 }
