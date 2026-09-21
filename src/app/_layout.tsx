@@ -7,6 +7,8 @@ export default function RootLayout() {
       <Stack.Screen name="create-group-settlement" />
       <Stack.Screen name="upload-receipt" />
       <Stack.Screen name="upload-file" />
+      <Stack.Screen name="receipt-processing" />
+      <Stack.Screen name="instant-settlement" />
     </Stack>
   );
 }
