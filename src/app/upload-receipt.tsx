@@ -5,10 +5,12 @@ import { useState } from 'react';
 import {
   Alert,
   Image,
+  Modal,
   Pressable,
   ScrollView,
   StyleSheet,
   Text,
+  TouchableOpacity,
   View,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
@@ -22,6 +24,7 @@ export default function UploadReceiptScreen() {
   const router = useRouter();
   const [imageUri, setImageUri] = useState<string | null>(null);
   const [imageBase64, setImageBase64] = useState<string | null>(null);
+  const [pickerVisible, setPickerVisible] = useState(false);
 
   const handleImageResult = (result: ImagePicker.ImagePickerResult) => {
     if (result.canceled) return;
@@ -31,6 +34,7 @@ export default function UploadReceiptScreen() {
   };
 
   const takePhoto = async () => {
+    setPickerVisible(false);
     const permission = await ImagePicker.requestCameraPermissionsAsync();
     if (!permission.granted) {
       Alert.alert('Camera permission needed', 'Please allow camera access to scan a receipt.');
@@ -41,6 +45,7 @@ export default function UploadReceiptScreen() {
   };
 
   const chooseFromLibrary = async () => {
+    setPickerVisible(false);
     const permission = await ImagePicker.requestMediaLibraryPermissionsAsync();
     if (!permission.granted) {
       Alert.alert('Photos permission needed', 'Please allow photo access to upload a receipt.');
@@ -48,14 +53,6 @@ export default function UploadReceiptScreen() {
     }
     const result = await ImagePicker.launchImageLibraryAsync({ quality: 0.7, base64: true });
     handleImageResult(result);
-  };
-
-  const onPressReceiptBox = () => {
-    Alert.alert('Add receipt', 'Take a photo or choose one from your library.', [
-      { text: 'Take Photo', onPress: takePhoto },
-      { text: 'Choose from Library', onPress: chooseFromLibrary },
-      { text: 'Cancel', style: 'cancel' },
-    ]);
   };
 
   const handleUpload = () => {
@@ -75,25 +72,54 @@ export default function UploadReceiptScreen() {
         </View>
 
         <ScrollView contentContainerStyle={styles.content} keyboardShouldPersistTaps="handled">
-          <Pressable style={styles.receiptBox} onPress={onPressReceiptBox}>
+          <TouchableOpacity
+            style={styles.receiptBox}
+            onPress={() => setPickerVisible(true)}
+            activeOpacity={0.7}
+          >
             {imageUri ? (
               <Image source={{ uri: imageUri }} style={styles.receiptImage} resizeMode="cover" />
             ) : (
               <Text style={styles.receiptBoxText}>Take/Upload Receipt</Text>
             )}
-          </Pressable>
+          </TouchableOpacity>
         </ScrollView>
 
         <View style={styles.footer}>
-          <Pressable
+          <TouchableOpacity
             style={[styles.uploadButton, !imageBase64 && styles.uploadButtonDisabled]}
             onPress={handleUpload}
             disabled={!imageBase64}
+            activeOpacity={0.7}
           >
             <Text style={styles.uploadButtonText}>Upload</Text>
-          </Pressable>
+          </TouchableOpacity>
         </View>
       </View>
+
+      <Modal visible={pickerVisible} transparent animationType="fade" onRequestClose={() => setPickerVisible(false)}>
+        <Pressable style={styles.modalBackdrop} onPress={() => setPickerVisible(false)}>
+          <View style={styles.sheet}>
+            <TouchableOpacity style={styles.sheetOption} onPress={takePhoto} activeOpacity={0.7}>
+              <Ionicons name="camera" size={20} color="#000" />
+              <Text style={styles.sheetOptionText}>Take Photo</Text>
+            </TouchableOpacity>
+            <View style={styles.sheetDivider} />
+            <TouchableOpacity style={styles.sheetOption} onPress={chooseFromLibrary} activeOpacity={0.7}>
+              <Ionicons name="images" size={20} color="#000" />
+              <Text style={styles.sheetOptionText}>Choose from Library</Text>
+            </TouchableOpacity>
+            <View style={styles.sheetDivider} />
+            <TouchableOpacity
+              style={styles.sheetOption}
+              onPress={() => setPickerVisible(false)}
+              activeOpacity={0.7}
+            >
+              <Text style={[styles.sheetOptionText, styles.sheetCancelText]}>Cancel</Text>
+            </TouchableOpacity>
+          </View>
+        </Pressable>
+      </Modal>
     </SafeAreaView>
   );
 }
@@ -166,5 +192,40 @@ const styles = StyleSheet.create({
     fontSize: 17,
     fontWeight: '700',
     color: '#fff',
+  },
+  modalBackdrop: {
+    flex: 1,
+    backgroundColor: 'rgba(0, 0, 0, 0.4)',
+    justifyContent: 'flex-end',
+    alignItems: 'center',
+  },
+  sheet: {
+    width: '100%',
+    maxWidth: 480,
+    backgroundColor: '#fff',
+    borderTopLeftRadius: 20,
+    borderTopRightRadius: 20,
+    paddingBottom: 24,
+    paddingTop: 8,
+  },
+  sheetOption: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 12,
+    paddingVertical: 18,
+    paddingHorizontal: 24,
+  },
+  sheetOptionText: {
+    fontSize: 16,
+    fontWeight: '600',
+    color: '#000',
+  },
+  sheetCancelText: {
+    color: '#c0392b',
+  },
+  sheetDivider: {
+    height: 1,
+    backgroundColor: '#eee',
+    marginHorizontal: 24,
   },
 });
