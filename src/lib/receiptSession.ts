@@ -1,7 +1,17 @@
 import type { ParsedReceipt } from './parseReceipt';
+import type { PickedImage } from './pickReceipt';
 
+let pickedImage: PickedImage | null = null;
 let pendingImageBase64: string | null = null;
 let parsedReceipt: ParsedReceipt | null = null;
+
+export function setPickedImage(image: PickedImage | null) {
+  pickedImage = image;
+}
+
+export function getPickedImage() {
+  return pickedImage;
+}
 
 export function setPendingImage(base64: string) {
   pendingImageBase64 = base64;
