@@ -48,9 +48,29 @@ export async function callGoogleVisionOCR(base64Image: string): Promise<string> 
 }
 
 const PRICE_RE = /((?:\d{1,3}(?:,\d{3})+|\d+)[.,]\d{2})\s*$/;
-const LEADING_QTY_RE = /^\s*\d+\s*[xX]?\s*/;
+const PRICE_ONLY_RE = /^[^\d]{0,6}(?:\d{1,3}(?:,\d{3})+|\d+)[.,]\d{2}\s*$/;
+const LEADING_QTY_RE = /^\s*(?:\d+\s*[xX]\s*|[xX]\s*\d+\s*)/;
 const UNIT_PRICE_RE = /\s*[àA@]\s*\d+[.,]\d{2}\s*[A-Za-z]{0,4}\s*/g;
+const TRAILING_CURRENCY_RE = /\s*(RM|MYR|SGD|USD|CHF|EUR|GBP|\$|€|£)\s*$/i;
 const ROUNDING_RE = /(rnd|round)/;
+const SERVICE_CHARGE_RE = /(svc|service).*(chg|charge)|(chg|charge).*(svc|service)/;
+const TAX_RE = /(sst|vat|tax|gst|mwst)/;
+const PAYMENT_METHOD_RE = /\b(visa|mastercard|master card|amex|cash|debit|nets|grabpay|touch\s*n\s*go|tng|paynow|alipay)\b/;
+const STARTS_WITH_QTY_RE = /^\s*(?:\d|[xX]\s*\d)/;
+const TOTAL_LABEL_RE = /total|\bttl\b|amount due/;
+
+function isMergeableLabel(line: string): boolean {
+  if (STARTS_WITH_QTY_RE.test(line)) return true;
+  const lower = line.toLowerCase();
+  return (
+    lower.includes('subtotal') ||
+    TOTAL_LABEL_RE.test(lower) ||
+    TAX_RE.test(lower) ||
+    SERVICE_CHARGE_RE.test(lower) ||
+    ROUNDING_RE.test(lower) ||
+    PAYMENT_METHOD_RE.test(lower)
+  );
+}
 
 function toNumber(raw: string): number {
   // Strip thousands separators, then normalize the decimal comma (e.g. "1,234.50" or "1.234,50").
@@ -63,10 +83,28 @@ function toNumber(raw: string): number {
  * starting point, not a robust parser — expect to tune them against real receipts.
  */
 export function parseReceiptText(rawText: string): ParsedReceipt {
-  const lines = rawText
+  const rawLines = rawText
     .split('\n')
     .map((line) => line.trim())
     .filter(Boolean);
+
+  const lines: string[] = [];
+  const consumed = new Set<number>();
+  for (let i = 0; i < rawLines.length; i++) {
+    if (consumed.has(i)) continue;
+    const line = rawLines[i];
+    const next = rawLines[i + 1];
+
+    if (!PRICE_RE.test(line) && isMergeableLabel(line) && next && PRICE_ONLY_RE.test(next)) {
+      lines.push(`${line} ${next}`);
+      consumed.add(i + 1);
+    } else if (PRICE_ONLY_RE.test(line) && next && !PRICE_RE.test(next) && isMergeableLabel(next)) {
+      lines.push(`${next} ${line}`);
+      consumed.add(i + 1);
+    } else {
+      lines.push(line);
+    }
+  }
 
   const result: ParsedReceipt = {
     items: [],
@@ -90,24 +128,26 @@ export function parseReceiptText(rawText: string): ParsedReceipt {
       // Rounding-adjustment lines (e.g. "Rnd Adj") aren't a purchasable item, tax, or the total.
       continue;
     }
-    if (lower.includes('%') && /(svc|service|chg)/.test(lower)) {
-      result.serviceCharge = price;
-      continue;
-    }
-    if (lower.includes('%') && /(sst|vat|tax|gst|mwst)/.test(lower)) {
+    if (TAX_RE.test(lower)) {
       result.tax = price;
       continue;
     }
-    if (lower.includes('total') || /\bttl\b/.test(lower) || lower.includes('amount due')) {
-      // Later "total"-like lines (e.g. a post-rounding "Ttl Aft Rnd") override earlier ones,
-      // so the final total reflects the most authoritative figure on the receipt.
+    if (SERVICE_CHARGE_RE.test(lower)) {
+      result.serviceCharge = price;
+      continue;
+    }
+    if (TOTAL_LABEL_RE.test(lower)) {
       result.total = price;
+      continue;
+    }
+    if (PAYMENT_METHOD_RE.test(lower)) {
       continue;
     }
 
     const name = line
       .slice(0, priceMatch.index)
       .replace(UNIT_PRICE_RE, ' ')
+      .replace(TRAILING_CURRENCY_RE, '')
       .replace(LEADING_QTY_RE, '')
       .replace(/\s{2,}/g, ' ')
       .trim();

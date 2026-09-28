@@ -4,6 +4,7 @@ import { useState } from 'react';
 import { Image, Pressable, ScrollView, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
+import { goBack } from '../lib/navigation';
 import { useReceiptPicker, type PickedImage } from '../lib/pickReceipt';
 import { getPickedImage, setPendingImage, setPickedImage } from '../lib/receiptSession';
 
@@ -32,7 +33,7 @@ export default function UploadReceiptScreen() {
     <SafeAreaView style={styles.safeArea}>
       <View style={styles.page}>
         <View style={styles.header}>
-          <Pressable onPress={() => router.back()} hitSlop={12}>
+          <Pressable onPress={() => goBack(router)} hitSlop={12}>
             <Ionicons name="chevron-back" size={26} color="#000" />
           </Pressable>
           <Text style={styles.headerTitle}>Upload Receipt</Text>

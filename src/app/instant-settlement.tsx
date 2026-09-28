@@ -4,6 +4,7 @@ import { useEffect, useState } from 'react';
 import { Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
+import { goBack } from '../lib/navigation';
 import type { ParsedReceipt } from '../lib/parseReceipt';
 import { getParsedReceipt } from '../lib/receiptSession';
 
@@ -47,7 +48,7 @@ export default function InstantSettlementScreen() {
     <SafeAreaView style={styles.safeArea}>
       <View style={styles.page}>
         <View style={styles.header}>
-          <Pressable onPress={() => router.back()} hitSlop={12}>
+          <Pressable onPress={() => goBack(router)} hitSlop={12}>
             <Ionicons name="chevron-back" size={26} color="#000" />
           </Pressable>
           <Text style={styles.headerTitle}>Instant Settlement</Text>
