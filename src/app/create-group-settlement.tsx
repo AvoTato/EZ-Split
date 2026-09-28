@@ -76,7 +76,7 @@ export default function CreateGroupSettlementScreen() {
         </ScrollView>
 
         <View style={styles.footer}>
-          <Pressable style={styles.continueButton} onPress={() => router.push('/upload-receipt')}>
+          <Pressable style={styles.continueButton} onPress={() => router.push('/upload-file?flow=group')}>
             <Text style={styles.continueButtonText}>Continue</Text>
           </Pressable>
         </View>

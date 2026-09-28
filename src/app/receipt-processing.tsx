@@ -8,7 +8,7 @@ import { setParsedReceipt, takePendingImage } from '../lib/receiptSession';
 
 const PURPLE = '#9B87F0';
 const TRACK_GRAY = '#D9D9D9';
-const MIN_VISIBLE_MS = 350;
+const MIN_VISIBLE_MS = 200;
 
 // OCR scanning isn't functional yet, so we fall back to this example receipt
 // (matching the design mockup) whenever the real call fails.
@@ -32,7 +32,7 @@ export default function ReceiptProcessingScreen() {
   useEffect(() => {
     Animated.timing(progress, {
       toValue: 0.9,
-      duration: 900,
+      duration: 600,
       useNativeDriver: false,
     }).start();
 
@@ -51,7 +51,8 @@ export default function ReceiptProcessingScreen() {
         const text = await callGoogleVisionOCR(imageBase64);
         parsed = parseReceiptText(text);
       } catch (e) {
-        // OCR isn't functional yet — fall back to example data so the rest of the flow is usable.
+        // Fall back to example data so the rest of the flow is usable, but surface why OCR failed.
+        console.warn('Receipt OCR failed:', e);
         parsed = DUMMY_RECEIPT;
       }
 
