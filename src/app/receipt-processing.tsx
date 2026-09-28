@@ -1,6 +1,6 @@
 import { useRouter } from 'expo-router';
 import { useEffect, useRef } from 'react';
-import { Animated, Image, StyleSheet, Text, View } from 'react-native';
+import { Alert, Animated, Image, Platform, StyleSheet, Text, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
 import { callGoogleVisionOCR, parseReceiptText, type ParsedReceipt } from '../lib/parseReceipt';
@@ -9,21 +9,6 @@ import { setParsedReceipt, takePendingImage } from '../lib/receiptSession';
 const PURPLE = '#9B87F0';
 const TRACK_GRAY = '#D9D9D9';
 const MIN_VISIBLE_MS = 200;
-
-// OCR scanning isn't functional yet, so we fall back to this example receipt
-// (matching the design mockup) whenever the real call fails.
-const DUMMY_RECEIPT: ParsedReceipt = {
-  items: [
-    { name: 'Chicken Rice', price: 12 },
-    { name: 'Nasi Lemak', price: 10 },
-    { name: 'Fries', price: 8 },
-    { name: 'Drinks', price: 10 },
-  ],
-  subtotal: 40,
-  serviceCharge: 4,
-  tax: 2,
-  total: 46,
-};
 
 export default function ReceiptProcessingScreen() {
   const router = useRouter();
@@ -46,14 +31,21 @@ export default function ReceiptProcessingScreen() {
     let cancelled = false;
 
     (async () => {
-      let parsed: ParsedReceipt;
+      let parsed: ParsedReceipt | null = null;
       try {
         const text = await callGoogleVisionOCR(imageBase64);
+        // Left in intentionally: the parser is a heuristic, so seeing the raw OCR text
+        // is how we tell "Vision misread the receipt" apart from "the parser missed it."
+        console.log('Raw OCR text:\n' + text);
         parsed = parseReceiptText(text);
+        console.log('Parsed receipt:', parsed);
+        if (parsed.items.length === 0 && parsed.total === null) {
+          // Nothing recognizable came out of the text — treat it the same as an OCR failure
+          // rather than showing an empty settlement.
+          parsed = null;
+        }
       } catch (e) {
-        // Fall back to example data so the rest of the flow is usable, but surface why OCR failed.
         console.warn('Receipt OCR failed:', e);
-        parsed = DUMMY_RECEIPT;
       }
 
       if (cancelled) return;
@@ -61,6 +53,23 @@ export default function ReceiptProcessingScreen() {
       const remaining = Math.max(0, MIN_VISIBLE_MS - elapsed);
       setTimeout(() => {
         if (cancelled) return;
+
+        if (!parsed) {
+          // react-native-web's Alert.alert is a no-op, so its onPress (the redirect) would
+          // never fire there — use window.alert on web instead, and navigate right after it.
+          if (Platform.OS === 'web') {
+            window.alert("Couldn't read that receipt. Please try again with a clearer photo.");
+            router.replace('/upload-receipt');
+          } else {
+            Alert.alert(
+              "Couldn't read that receipt",
+              'Please try again with a clearer photo.',
+              [{ text: 'OK', onPress: () => router.replace('/upload-receipt') }]
+            );
+          }
+          return;
+        }
+
         Animated.timing(progress, {
           toValue: 1,
           duration: 150,
