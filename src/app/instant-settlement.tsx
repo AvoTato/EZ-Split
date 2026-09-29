@@ -132,7 +132,16 @@ export default function InstantSettlementScreen() {
         </ScrollView>
 
         <View style={styles.footer}>
-          <Pressable style={styles.continueButton} onPress={() => router.back()}>
+          <Pressable
+            style={styles.continueButton}
+            onPress={() => {
+              if (splitMode === 'separate') {
+                router.push('/who-had-what');
+              } else {
+                router.back();
+              }
+            }}
+          >
             <Text style={styles.continueButtonText}>Continue</Text>
           </Pressable>
         </View>

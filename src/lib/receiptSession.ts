@@ -30,3 +30,29 @@ export function setParsedReceipt(receipt: ParsedReceipt) {
 export function getParsedReceipt() {
   return parsedReceipt;
 }
+
+export type Person = {
+  id: string;
+  name: string;
+};
+
+export type ItemAssignment = {
+  itemIndex: number;
+  personId: string;
+  shares: number;
+};
+
+export type WhoHadWhatSession = {
+  people: Person[];
+  assignments: ItemAssignment[];
+};
+
+let whoHadWhatSession: WhoHadWhatSession | null = null;
+
+export function setWhoHadWhatSession(session: WhoHadWhatSession) {
+  whoHadWhatSession = session;
+}
+
+export function getWhoHadWhatSession() {
+  return whoHadWhatSession;
+}
