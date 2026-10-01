@@ -1,10 +1,9 @@
 import { Ionicons } from '@expo/vector-icons';
 import { useRouter } from 'expo-router';
 import { useState } from 'react';
-import { SafeAreaView } from 'react-native-safe-area-context';
 import { Pressable, ScrollView, StyleSheet, Text, TextInput, View } from 'react-native';
+import { SafeAreaView } from 'react-native-safe-area-context';
 
-import { goBack } from '../lib/navigation';
 
 const PURPLE = '#9B87F0';
 const PILL_GRAY = '#EFEFEF';
@@ -25,9 +24,6 @@ export default function CreateGroupSettlementScreen() {
     <SafeAreaView style={styles.safeArea}>
       <View style={styles.page}>
         <View style={styles.header}>
-          <Pressable onPress={() => goBack(router)} hitSlop={12}>
-            <Ionicons name="chevron-back" size={26} color="#000" />
-          </Pressable>
           <Text style={styles.headerTitle}>Create Group Settlement</Text>
         </View>
 
