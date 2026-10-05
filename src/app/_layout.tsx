@@ -9,8 +9,9 @@ export default function RootLayout() {
       <Stack.Screen name="upload-file" />
       <Stack.Screen name="receipt-processing" />
       <Stack.Screen name="instant-settlement" />
+      <Stack.Screen name="settlement-summary" />
       <Stack.Screen name="who-had-what" />
-      <Stack.Screen name="screen-who-had-what" />
+      <Stack.Screen name="item-quantities" />
     </Stack>
   );
 }

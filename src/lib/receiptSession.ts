@@ -56,3 +56,26 @@ export function setWhoHadWhatSession(session: WhoHadWhatSession) {
 export function getWhoHadWhatSession() {
   return whoHadWhatSession;
 }
+
+export type SettlementPerson = {
+  id: string;
+  name: string;
+  amount: number;
+};
+
+export type SettlementSummarySession = {
+  people: SettlementPerson[];
+  note: string;
+  unassignedItems?: { name: string; price: number }[];
+  pax?: number;
+};
+
+let settlementSummarySession: SettlementSummarySession | null = null;
+
+export function setSettlementSummarySession(session: SettlementSummarySession) {
+  settlementSummarySession = session;
+}
+
+export function getSettlementSummarySession() {
+  return settlementSummarySession;
+}
