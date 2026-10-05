@@ -67,34 +67,9 @@ export default function WhoHadWhatScreen() {
     });
   };
 
-  const incrementShare = (personId: string, itemIndex: number) => {
-    setAssignments((prev) => {
-      const exists = prev.some((a) => a.personId === personId && a.itemIndex === itemIndex);
-      if (!exists) {
-        return [...prev, { itemIndex, personId, shares: 1 }];
-      }
-      return prev.map((a) =>
-        a.personId === personId && a.itemIndex === itemIndex ? { ...a, shares: a.shares + 1 } : a
-      );
-    });
-  };
-
-  const decrementShare = (personId: string, itemIndex: number) => {
-    setAssignments((prev) => {
-      const current = prev.find((a) => a.personId === personId && a.itemIndex === itemIndex);
-      if (!current) return prev;
-      if (current.shares <= 1) {
-        return prev.filter((a) => !(a.personId === personId && a.itemIndex === itemIndex));
-      }
-      return prev.map((a) =>
-        a.personId === personId && a.itemIndex === itemIndex ? { ...a, shares: a.shares - 1 } : a
-      );
-    });
-  };
-
-  const handleCalculate = () => {
+  const handleNext = () => {
     setWhoHadWhatSession({ people, assignments });
-    router.push('/screen-who-had-what');
+    router.push('/item-quantities');
   };
 
   return (
@@ -147,44 +122,24 @@ export default function WhoHadWhatScreen() {
                       );
                     })}
                   </View>
-                ) : personAssignments.length === 0 ? (
+                ) : (
                   <Pressable
                     style={styles.selectDishesPill}
                     onPress={() => toggleExpanded(person.id)}
                   >
-                    <Text style={styles.selectDishesText}>Select dishes</Text>
+                    <View style={styles.selectDishesTextGroup}>
+                      <Text style={styles.selectDishesText}>Select dishes</Text>
+                      {personAssignments.length > 0 && (
+                        <View style={styles.selectedBadge}>
+                          <Text style={styles.selectedBadgeText}>
+                            {personAssignments.length} item{personAssignments.length === 1 ? '' : 's'}{' '}
+                            selected
+                          </Text>
+                        </View>
+                      )}
+                    </View>
                     <Ionicons name="chevron-down" size={18} color={MUTED} />
                   </Pressable>
-                ) : (
-                  <View style={styles.selectedList}>
-                    {personAssignments.map((a) => {
-                      const item = receipt.items[a.itemIndex];
-                      return (
-                        <View key={a.itemIndex} style={styles.selectedRow}>
-                          <Ionicons name="checkmark-circle" size={18} color={GREEN} />
-                          <Text style={styles.itemName}>{item.name}</Text>
-                          <Text style={styles.itemPrice}>{money(item.price)}</Text>
-                          <View style={styles.stepper}>
-                            <Pressable
-                              style={styles.stepperButton}
-                              onPress={() => decrementShare(person.id, a.itemIndex)}
-                              hitSlop={8}
-                            >
-                              <Ionicons name="remove" size={14} color={PURPLE} />
-                            </Pressable>
-                            <Text style={styles.stepperCount}>{a.shares}</Text>
-                            <Pressable
-                              style={styles.stepperButton}
-                              onPress={() => incrementShare(person.id, a.itemIndex)}
-                              hitSlop={8}
-                            >
-                              <Ionicons name="add" size={14} color={PURPLE} />
-                            </Pressable>
-                          </View>
-                        </View>
-                      );
-                    })}
-                  </View>
                 )}
               </View>
             );
@@ -199,10 +154,10 @@ export default function WhoHadWhatScreen() {
         <View style={styles.footer}>
           <Pressable
             style={[styles.calculateButton, people.length === 0 && styles.calculateButtonDisabled]}
-            onPress={handleCalculate}
+            onPress={handleNext}
             disabled={people.length === 0}
           >
-            <Text style={styles.calculateButtonText}>Calculate</Text>
+            <Text style={styles.calculateButtonText}>Next</Text>
           </Pressable>
         </View>
       </View>
@@ -303,38 +258,25 @@ const styles = StyleSheet.create({
     paddingVertical: 12,
     paddingHorizontal: 16,
   },
-  selectDishesText: {
-    fontSize: 15,
-    color: MUTED,
-  },
-  selectedList: {
-    marginTop: 12,
-    gap: 12,
-  },
-  selectedRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 10,
-  },
-  stepper: {
+  selectDishesTextGroup: {
     flexDirection: 'row',
     alignItems: 'center',
     gap: 8,
   },
-  stepperButton: {
-    width: 28,
-    height: 28,
-    borderRadius: 14,
-    backgroundColor: PILL_GRAY,
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  stepperCount: {
+  selectDishesText: {
     fontSize: 15,
+    color: MUTED,
+  },
+  selectedBadge: {
+    backgroundColor: PURPLE,
+    borderRadius: 12,
+    paddingVertical: 2,
+    paddingHorizontal: 8,
+  },
+  selectedBadgeText: {
+    fontSize: 12,
     fontWeight: '700',
-    color: '#000',
-    minWidth: 16,
-    textAlign: 'center',
+    color: '#fff',
   },
   addPersonPill: {
     flexDirection: 'row',

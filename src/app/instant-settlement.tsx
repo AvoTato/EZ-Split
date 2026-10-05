@@ -6,7 +6,7 @@ import { SafeAreaView } from 'react-native-safe-area-context';
 
 import { goBack } from '../lib/navigation';
 import type { ParsedReceipt } from '../lib/parseReceipt';
-import { getParsedReceipt } from '../lib/receiptSession';
+import { getParsedReceipt, setSettlementSummarySession, type SettlementPerson } from '../lib/receiptSession';
 
 const PURPLE = '#9B87F0';
 const PILL_GRAY = '#EFEFEF';
@@ -138,7 +138,19 @@ export default function InstantSettlementScreen() {
               if (splitMode === 'separate') {
                 router.push('/who-had-what');
               } else {
-                router.back();
+                const totalForSplit = receipt.total ?? 0;
+                const amountPerPerson = totalForSplit / pax;
+                const settlementPeople: SettlementPerson[] = Array.from({ length: pax }, (_, index) => ({
+                  id: `e${index + 1}`,
+                  name: `Person ${index + 1}`,
+                  amount: amountPerPerson,
+                }));
+                setSettlementSummarySession({
+                  pax,
+                  people: settlementPeople,
+                  note: `Total split equally among ${pax} people.`,
+                });
+                router.push('/settlement-summary');
               }
             }}
           >
