@@ -47,8 +47,8 @@ export async function callGoogleVisionOCR(base64Image: string): Promise<string> 
   return text;
 }
 
-const PRICE_RE = /((?:\d{1,3}(?:,\d{3})+|\d+)[.,]\d{2})\s*$/;
-const PRICE_ONLY_RE = /^[^\d]{0,6}(?:\d{1,3}(?:,\d{3})+|\d+)[.,]\d{2}\s*$/;
+const PRICE_RE = /((?:\d{1,3}(?:,\d{3})+|\d+)[.,]\d{2})\s*[A-Za-z]{0,3}\s*$/;
+const PRICE_ONLY_RE = /^[^\d]{0,6}(?:\d{1,3}(?:,\d{3})+|\d+)[.,]\d{2}\s*[A-Za-z]{0,3}\s*$/;
 const LEADING_QTY_RE = /^\s*(?:\d+\s*[xX]\s*|[xX]\s*\d+\s*)/;
 const UNIT_PRICE_RE = /\s*[àA@]\s*\d+[.,]\d{2}\s*[A-Za-z]{0,4}\s*/g;
 const TRAILING_CURRENCY_RE = /\s*(RM|MYR|SGD|USD|CHF|EUR|GBP|\$|€|£)\s*$/i;
@@ -60,7 +60,7 @@ const STARTS_WITH_QTY_RE = /^\s*(?:\d|[xX]\s*\d)/;
 const TOTAL_LABEL_RE = /total|\bttl\b|amount due/;
 
 function isMergeableLabel(line: string): boolean {
-  if (STARTS_WITH_QTY_RE.test(line)) return true;
+  if (STARTS_WITH_QTY_RE.test(line) && /[A-Za-z]/.test(line)) return true;
   const lower = line.toLowerCase();
   return (
     lower.includes('subtotal') ||
@@ -70,6 +70,92 @@ function isMergeableLabel(line: string): boolean {
     ROUNDING_RE.test(lower) ||
     PAYMENT_METHOD_RE.test(lower)
   );
+}
+
+const BARE_QTY_LINE_RE = /^\d{1,2}$/;
+
+function mergeBareQuantityLines(rawLines: string[]): string[] {
+  const merged: string[] = [];
+  for (let i = 0; i < rawLines.length; i++) {
+    const line = rawLines[i];
+    const next = rawLines[i + 1];
+    if (BARE_QTY_LINE_RE.test(line) && next) {
+      merged.push(`${line} ${next}`);
+      i += 1;
+    } else {
+      merged.push(line);
+    }
+  }
+  return merged;
+}
+
+const PRICE_WITH_SUFFIX_RE = /((?:\d{1,3}(?:,\d{3})+|\d+)[.,]\d{2})\s+[A-Za-z]+\s*$/;
+const PRICE_BARE_TRAILING_RE = /\s*(?:\d{1,3}(?:,\d{3})+|\d+)[.,]\d{2}\s*$/;
+
+function isKeywordLine(line: string): boolean {
+  const lower = line.toLowerCase();
+  return (
+    lower.includes('subtotal') ||
+    TOTAL_LABEL_RE.test(lower) ||
+    TAX_RE.test(lower) ||
+    SERVICE_CHARGE_RE.test(lower) ||
+    ROUNDING_RE.test(lower) ||
+    PAYMENT_METHOD_RE.test(lower)
+  );
+}
+
+function pairNamesWithSuffixedPrices(lines: string[]): string[] {
+  const result: string[] = [];
+  for (let i = 0; i < lines.length; i++) {
+    const line = lines[i];
+    const next = lines[i + 1];
+    const nextPriceMatch = next ? next.match(PRICE_WITH_SUFFIX_RE) : null;
+    if (next && nextPriceMatch && !PRICE_WITH_SUFFIX_RE.test(line) && !isKeywordLine(line)) {
+      const strippedName = line.replace(PRICE_BARE_TRAILING_RE, '').trim();
+      result.push(`${strippedName} ${nextPriceMatch[1]}`);
+      i += 1;
+    } else {
+      result.push(line);
+    }
+  }
+  return result;
+}
+
+function isStandaloneTotalsKeyword(line: string): boolean {
+  const lower = line.toLowerCase();
+  if (lower.includes('subtotal')) return false;
+  return (TAX_RE.test(lower) || ROUNDING_RE.test(lower) || TOTAL_LABEL_RE.test(lower)) && !PRICE_RE.test(line);
+}
+
+function zipDecoupledTotalsKeywords(lines: string[]): string[] {
+  const result: string[] = [];
+  let i = 0;
+  while (i < lines.length) {
+    let runEnd = i;
+    while (runEnd < lines.length && isStandaloneTotalsKeyword(lines[runEnd])) {
+      runEnd += 1;
+    }
+    const runLength = runEnd - i;
+    if (runLength > 0) {
+      const values = lines.slice(runEnd, runEnd + runLength);
+      const allBarePrices = values.length === runLength && values.every((v) => PRICE_ONLY_RE.test(v));
+      if (allBarePrices) {
+        for (let k = 0; k < runLength; k++) {
+          result.push(`${lines[i + k]} ${values[k]}`);
+        }
+        i = runEnd + runLength;
+        continue;
+      }
+      for (let k = i; k < runEnd; k++) {
+        result.push(lines[k]);
+      }
+      i = runEnd;
+      continue;
+    }
+    result.push(lines[i]);
+    i += 1;
+  }
+  return result;
 }
 
 function toNumber(raw: string): number {
@@ -88,12 +174,16 @@ export function parseReceiptText(rawText: string): ParsedReceipt {
     .map((line) => line.trim())
     .filter(Boolean);
 
+  const qtyMerged = mergeBareQuantityLines(rawLines);
+  const pricesPaired = pairNamesWithSuffixedPrices(qtyMerged);
+  const totalsZipped = zipDecoupledTotalsKeywords(pricesPaired);
+
   const lines: string[] = [];
   const consumed = new Set<number>();
-  for (let i = 0; i < rawLines.length; i++) {
+  for (let i = 0; i < totalsZipped.length; i++) {
     if (consumed.has(i)) continue;
-    const line = rawLines[i];
-    const next = rawLines[i + 1];
+    const line = totalsZipped[i];
+    const next = totalsZipped[i + 1];
 
     if (!PRICE_RE.test(line) && isMergeableLabel(line) && next && PRICE_ONLY_RE.test(next)) {
       lines.push(`${line} ${next}`);
