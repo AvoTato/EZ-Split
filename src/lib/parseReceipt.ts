@@ -58,12 +58,13 @@ const TAX_RE = /(sst|vat|tax|gst|mwst)/;
 const PAYMENT_METHOD_RE = /\b(visa|mastercard|master card|amex|cash|debit|nets|grabpay|touch\s*n\s*go|tng|paynow|alipay)\b/;
 const STARTS_WITH_QTY_RE = /^\s*(?:\d|[xX]\s*\d)/;
 const TOTAL_LABEL_RE = /total|\bttl\b|amount due/;
+const SUBTOTAL_RE = /sub\s*-?\s*total/;
 
 function isMergeableLabel(line: string): boolean {
   if (STARTS_WITH_QTY_RE.test(line) && /[A-Za-z]/.test(line)) return true;
   const lower = line.toLowerCase();
   return (
-    lower.includes('subtotal') ||
+    SUBTOTAL_RE.test(lower) ||
     TOTAL_LABEL_RE.test(lower) ||
     TAX_RE.test(lower) ||
     SERVICE_CHARGE_RE.test(lower) ||
@@ -74,28 +75,13 @@ function isMergeableLabel(line: string): boolean {
 
 const BARE_QTY_LINE_RE = /^\d{1,2}$/;
 
-function mergeBareQuantityLines(rawLines: string[]): string[] {
-  const merged: string[] = [];
-  for (let i = 0; i < rawLines.length; i++) {
-    const line = rawLines[i];
-    const next = rawLines[i + 1];
-    if (BARE_QTY_LINE_RE.test(line) && next) {
-      merged.push(`${line} ${next}`);
-      i += 1;
-    } else {
-      merged.push(line);
-    }
-  }
-  return merged;
-}
-
 const PRICE_WITH_SUFFIX_RE = /((?:\d{1,3}(?:,\d{3})+|\d+)[.,]\d{2})\s+[A-Za-z]+\s*$/;
 const PRICE_BARE_TRAILING_RE = /\s*(?:\d{1,3}(?:,\d{3})+|\d+)[.,]\d{2}\s*$/;
 
 function isKeywordLine(line: string): boolean {
   const lower = line.toLowerCase();
   return (
-    lower.includes('subtotal') ||
+    SUBTOTAL_RE.test(lower) ||
     TOTAL_LABEL_RE.test(lower) ||
     TAX_RE.test(lower) ||
     SERVICE_CHARGE_RE.test(lower) ||
@@ -121,10 +107,56 @@ function pairNamesWithSuffixedPrices(lines: string[]): string[] {
   return result;
 }
 
+const BARE_PRICE_LINE_RE = /^(?:\d{1,3}(?:,\d{3})+|\d+)[.,]\d{2}\s*$/;
+
+function isPureNumberLine(line: string): boolean {
+  return BARE_QTY_LINE_RE.test(line) || BARE_PRICE_LINE_RE.test(line);
+}
+
+function pairNamesWithNumberRuns(lines: string[]): string[] {
+  const result: string[] = [];
+  let i = 0;
+  while (i < lines.length) {
+    const line = lines[i];
+    if (!isKeywordLine(line) && /[A-Za-z]/.test(line)) {
+      let runEnd = i + 1;
+      while (runEnd < lines.length && runEnd - (i + 1) < 3 && isPureNumberLine(lines[runEnd])) {
+        runEnd += 1;
+      }
+      while (runEnd > i + 1 && !BARE_PRICE_LINE_RE.test(lines[runEnd - 1])) {
+        runEnd -= 1;
+      }
+      const runLength = runEnd - (i + 1);
+      if (runLength >= 2 || (runLength === 1 && STARTS_WITH_QTY_RE.test(line))) {
+        const priceLine = lines[runEnd - 1];
+        const priceMatch = priceLine.match(BARE_PRICE_LINE_RE);
+        if (priceMatch) {
+          result.push(`${line} ${priceMatch[0].trim()}`);
+          i = runEnd;
+          continue;
+        }
+      }
+    }
+    result.push(line);
+    i += 1;
+  }
+  return result;
+}
+
 function isStandaloneTotalsKeyword(line: string): boolean {
   const lower = line.toLowerCase();
-  if (lower.includes('subtotal')) return false;
-  return (TAX_RE.test(lower) || ROUNDING_RE.test(lower) || TOTAL_LABEL_RE.test(lower)) && !PRICE_RE.test(line);
+  return (
+    (SUBTOTAL_RE.test(lower) ||
+      TAX_RE.test(lower) ||
+      ROUNDING_RE.test(lower) ||
+      TOTAL_LABEL_RE.test(lower) ||
+      SERVICE_CHARGE_RE.test(lower)) &&
+    !PRICE_RE.test(line)
+  );
+}
+
+function isStandalonePaymentMethod(line: string): boolean {
+  return PAYMENT_METHOD_RE.test(line.toLowerCase()) && !PRICE_RE.test(line);
 }
 
 function zipDecoupledTotalsKeywords(lines: string[]): string[] {
@@ -137,13 +169,20 @@ function zipDecoupledTotalsKeywords(lines: string[]): string[] {
     }
     const runLength = runEnd - i;
     if (runLength > 0) {
-      const values = lines.slice(runEnd, runEnd + runLength);
+      let valuesStart = runEnd;
+      while (valuesStart < lines.length && isStandalonePaymentMethod(lines[valuesStart])) {
+        valuesStart += 1;
+      }
+      const values = lines.slice(valuesStart, valuesStart + runLength);
       const allBarePrices = values.length === runLength && values.every((v) => PRICE_ONLY_RE.test(v));
       if (allBarePrices) {
         for (let k = 0; k < runLength; k++) {
           result.push(`${lines[i + k]} ${values[k]}`);
         }
-        i = runEnd + runLength;
+        for (let k = runEnd; k < valuesStart; k++) {
+          result.push(lines[k]);
+        }
+        i = valuesStart + runLength;
         continue;
       }
       for (let k = i; k < runEnd; k++) {
@@ -172,11 +211,12 @@ export function parseReceiptText(rawText: string): ParsedReceipt {
   const rawLines = rawText
     .split('\n')
     .map((line) => line.trim())
-    .filter(Boolean);
+    .filter(Boolean)
+    .filter((line) => /[A-Za-z0-9]/.test(line));
 
-  const qtyMerged = mergeBareQuantityLines(rawLines);
-  const pricesPaired = pairNamesWithSuffixedPrices(qtyMerged);
-  const totalsZipped = zipDecoupledTotalsKeywords(pricesPaired);
+  const pricesPaired = pairNamesWithSuffixedPrices(rawLines);
+  const numberRunsPaired = pairNamesWithNumberRuns(pricesPaired);
+  const totalsZipped = zipDecoupledTotalsKeywords(numberRunsPaired);
 
   const lines: string[] = [];
   const consumed = new Set<number>();
@@ -210,7 +250,7 @@ export function parseReceiptText(rawText: string): ParsedReceipt {
     if (!priceMatch) continue;
     const price = toNumber(priceMatch[1]);
 
-    if (lower.includes('subtotal')) {
+    if (SUBTOTAL_RE.test(lower)) {
       result.subtotal = price;
       continue;
     }
