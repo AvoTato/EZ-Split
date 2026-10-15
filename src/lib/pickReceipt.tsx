@@ -12,8 +12,7 @@ export type PickedImage = {
 
 type Source = 'camera' | 'library';
 
-// Lower quality keeps the base64 payload small so the OCR request is fast.
-const PICKER_OPTIONS = { quality: 0.5, base64: true } as const;
+const PICKER_OPTIONS = { quality: 0.9, base64: true } as const;
 
 function toPickedImage(result: ImagePicker.ImagePickerResult): PickedImage | null {
   if (result.canceled) return null;

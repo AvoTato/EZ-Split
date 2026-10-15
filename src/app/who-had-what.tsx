@@ -116,7 +116,7 @@ export default function WhoHadWhatScreen() {
                           <View style={[styles.checkbox, checked && styles.checkboxChecked]}>
                             {checked && <Ionicons name="checkmark" size={16} color="#fff" />}
                           </View>
-                          <Text style={styles.itemName}>{item.name}</Text>
+                          <Text style={styles.itemName}>{item.qty > 1 ? `${item.qty}× ${item.name}` : item.name}</Text>
                           <Text style={styles.itemPrice}>{money(item.price)}</Text>
                         </Pressable>
                       );

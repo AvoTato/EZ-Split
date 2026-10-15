@@ -80,9 +80,15 @@ export default function InstantSettlementScreen() {
               <Text style={styles.detectedText}>Receipt detected</Text>
             </View>
 
+            {receipt.needsReview && (
+              <Text style={styles.reviewText}>
+                Some amounts may not have been read correctly. Please check the items against your receipt.
+              </Text>
+            )}
+
             {receipt.items.map((item, index) => (
               <View key={index} style={styles.row}>
-                <Text style={styles.rowText}>{item.name}</Text>
+                <Text style={styles.rowText}>{item.qty > 1 ? `${item.qty}× ${item.name}` : item.name}</Text>
                 <Text style={styles.rowTextBold}>{money(item.price)}</Text>
               </View>
             ))}
@@ -163,6 +169,11 @@ export default function InstantSettlementScreen() {
 }
 
 const styles = StyleSheet.create({
+  reviewText: {
+    color: '#B45309',
+    fontSize: 13,
+    marginBottom: 8,
+  },
   safeArea: {
     flex: 1,
     backgroundColor: '#fff',
