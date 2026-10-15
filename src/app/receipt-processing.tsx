@@ -33,11 +33,15 @@ export default function ReceiptProcessingScreen() {
     (async () => {
       let parsed: ParsedReceipt | null = null;
       try {
-        const text = await callGoogleVisionOCR(imageBase64);
+        const ocr = await callGoogleVisionOCR(imageBase64);
         // Left in intentionally: the parser is a heuristic, so seeing the raw OCR text
         // is how we tell "Vision misread the receipt" apart from "the parser missed it."
-        console.log('Raw OCR text:\n' + text);
-        parsed = parseReceiptText(text);
+        console.log('Raw OCR text:\n' + ocr.text);
+        console.log('Rebuilt OCR rows:\n' + ocr.rowsText);
+        parsed = parseReceiptText(ocr.rowsText ?? ocr.text);
+        if (ocr.rowsText && parsed.items.length === 0 && parsed.total === null) {
+          parsed = parseReceiptText(ocr.text);
+        }
         console.log('Parsed receipt:', parsed);
         if (parsed.items.length === 0 && parsed.total === null) {
           // Nothing recognizable came out of the text — treat it the same as an OCR failure
