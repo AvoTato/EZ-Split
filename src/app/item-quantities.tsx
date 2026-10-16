@@ -138,7 +138,7 @@ export default function ItemQuantitiesScreen() {
 
             return (
               <View key={person.id} style={styles.card}>
-                <Text style={styles.personLabel}>Person {index + 1}</Text>
+                <Text style={styles.personLabel}>{person.name.trim() || `Person ${index + 1}`}</Text>
 
                 {personAssignments.length === 0 ? (
                   <Text style={styles.noItemsText}>No items selected</Text>

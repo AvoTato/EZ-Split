@@ -4,6 +4,8 @@ import { useRouter } from 'expo-router';
 import { Pressable, StyleSheet, Text, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
+import { setGroupSettlementSetup } from '../../lib/receiptSession';
+
 const PURPLE = '#9B87F0';
 
 export default function HomeScreen() {
@@ -24,7 +26,13 @@ export default function HomeScreen() {
         <Text style={styles.welcome}>Welcome!</Text>
 
         <View style={styles.buttons}>
-          <Pressable style={styles.button} onPress={() => router.push('/upload-file')}>
+          <Pressable
+            style={styles.button}
+            onPress={() => {
+              setGroupSettlementSetup(null);
+              router.push('/upload-file');
+            }}
+          >
             <Text style={styles.buttonText}>Instant settlement</Text>
           </Pressable>
           <Pressable style={styles.button} onPress={() => router.push('/create-group-settlement')}>

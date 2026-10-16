@@ -1,6 +1,6 @@
 import { Ionicons } from '@expo/vector-icons';
-import { Stack, useRouter } from 'expo-router';
-import { useRef, useState } from 'react';
+import { Stack, useFocusEffect, useRouter } from 'expo-router';
+import { useCallback, useState } from 'react';
 import {
   Alert,
   KeyboardAvoidingView,
@@ -15,18 +15,19 @@ import {
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
-type Group = { id: string; name: string };
-
-const INITIAL_GROUPS: Group[] = [
-  { id: '1', name: 'School Mates' },
-  { id: '2', name: 'Dragon Fire' },
-];
+import { addGroup, getGroups, setGroups as storeGroups, type Group } from '../../lib/groups';
+import { setGroupSettlementSetup } from '../../lib/receiptSession';
 
 export default function GroupsScreen() {
   const router = useRouter();
-  // Replace this local state with your stored groups when connecting your backend.
-  const [groups, setGroups] = useState<Group[]>(INITIAL_GROUPS);
-  const nextId = useRef(3);
+  const [groups, setGroups] = useState<Group[]>(getGroups());
+
+  useFocusEffect(
+    useCallback(() => {
+      setGroups(getGroups());
+    }, []),
+  );
+
   const [search, setSearch] = useState('');
   const [isEditing, setIsEditing] = useState(false);
   const [modalVisible, setModalVisible] = useState(false);
@@ -48,22 +49,24 @@ export default function GroupsScreen() {
     if (!name) return;
 
     if (editingGroupId !== null) {
-      setGroups((current) => current.map((group) =>
+      storeGroups(getGroups().map((group) =>
         group.id === editingGroupId ? { ...group, name } : group,
       ));
     } else {
-      const id = String(nextId.current++);
-      setGroups((current) => [...current, { id, name }]);
+      addGroup({ name });
       setSearch('');
     }
+    setGroups(getGroups());
     setModalVisible(false);
   };
 
   const removeGroup = (groupId: string) => {
-    setGroups((current) => current.filter((group) => group.id !== groupId));
+    storeGroups(getGroups().filter((group) => group.id !== groupId));
+    setGroups(getGroups());
   };
 
   const createSettlement = (group: Group) => {
+    setGroupSettlementSetup(null);
     router.push({
       pathname: '/upload-file',
       params: { flow: 'group', groupId: group.id, groupName: group.name },

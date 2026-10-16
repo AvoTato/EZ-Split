@@ -6,7 +6,13 @@ import { SafeAreaView } from 'react-native-safe-area-context';
 
 import { goBack } from '../lib/navigation';
 import type { ParsedReceipt } from '../lib/parseReceipt';
-import { getParsedReceipt, setSettlementSummarySession, type SettlementPerson } from '../lib/receiptSession';
+import {
+  getGroupSettlementSetup,
+  getParsedReceipt,
+  setSettlementSummarySession,
+  type Person,
+  type SettlementPerson,
+} from '../lib/receiptSession';
 
 const PURPLE = '#9B87F0';
 const PILL_GRAY = '#EFEFEF';
@@ -29,6 +35,7 @@ export default function InstantSettlementScreen() {
   const [receipt, setReceipt] = useState<ParsedReceipt | null>(null);
   const [splitMode, setSplitMode] = useState<SplitMode>('separate');
   const [pax, setPax] = useState(2);
+  const [members, setMembers] = useState<Person[]>([]);
 
   useEffect(() => {
     const stored = getParsedReceipt();
@@ -36,10 +43,17 @@ export default function InstantSettlementScreen() {
       router.replace('/upload-receipt');
       return;
     }
+    const groupMembers = getGroupSettlementSetup()?.members ?? [];
+    if (groupMembers.length > 0) {
+      setMembers(groupMembers);
+      setPax(groupMembers.length);
+    }
     setReceipt(stored);
   }, [router]);
 
   if (!receipt) return null;
+
+  const isGroup = members.length > 0;
 
   const taxPct = pctOf(receipt.tax, receipt.subtotal);
   const servicePct = pctOf(receipt.serviceCharge, receipt.subtotal);
@@ -51,7 +65,7 @@ export default function InstantSettlementScreen() {
           <Pressable onPress={() => goBack(router)} hitSlop={12}>
             <Ionicons name="chevron-back" size={26} color="#000" />
           </Pressable>
-          <Text style={styles.headerTitle}>Instant Settlement</Text>
+          <Text style={styles.headerTitle}>{isGroup ? 'Group Settlement' : 'Instant Settlement'}</Text>
         </View>
 
         <ScrollView contentContainerStyle={styles.content}>
@@ -119,7 +133,17 @@ export default function InstantSettlementScreen() {
             )}
           </View>
 
-          {splitMode === 'equal' && (
+          {splitMode === 'equal' && isGroup && (
+            <View style={styles.membersCard}>
+              <View style={styles.membersHeader}>
+                <Text style={styles.paxLabel}>Number of Pax:</Text>
+                <Text style={styles.paxCount}>{members.length}</Text>
+              </View>
+              <Text style={styles.membersNames}>{members.map((m) => m.name).join(', ')}</Text>
+            </View>
+          )}
+
+          {splitMode === 'equal' && !isGroup && (
             <View style={styles.paxRow}>
               <Text style={styles.paxLabel}>Number of Pax:</Text>
               <Pressable
@@ -147,8 +171,8 @@ export default function InstantSettlementScreen() {
                 const totalForSplit = receipt.total ?? 0;
                 const amountPerPerson = totalForSplit / pax;
                 const settlementPeople: SettlementPerson[] = Array.from({ length: pax }, (_, index) => ({
-                  id: `e${index + 1}`,
-                  name: `Person ${index + 1}`,
+                  id: members[index]?.id ?? `e${index + 1}`,
+                  name: members[index]?.name ?? `Person ${index + 1}`,
                   amount: amountPerPerson,
                 }));
                 setSettlementSummarySession({
@@ -287,6 +311,25 @@ const styles = StyleSheet.create({
     marginTop: 20,
     boxShadow: '0px 2px 8px rgba(0, 0, 0, 0.08)',
     elevation: 3,
+  },
+  membersCard: {
+    backgroundColor: '#fff',
+    borderRadius: 24,
+    paddingVertical: 12,
+    paddingHorizontal: 20,
+    marginTop: 20,
+    gap: 6,
+    boxShadow: '0px 2px 8px rgba(0, 0, 0, 0.08)',
+    elevation: 3,
+  },
+  membersHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+  },
+  membersNames: {
+    fontSize: 13,
+    color: MUTED,
   },
   paxLabel: {
     fontSize: 15,
