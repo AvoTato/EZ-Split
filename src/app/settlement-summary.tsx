@@ -4,11 +4,16 @@ import { useEffect, useState } from 'react';
 import { Pressable, ScrollView, StyleSheet, Text, TextInput, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
+import GroupCreatedModal from '../components/GroupCreatedModal';
 import ShareBillModal from '../components/ShareBillModal';
+import { addGroup } from '../lib/groups';
 import { goBack } from '../lib/navigation';
 import {
+  getGroupSettlementSetup,
   getSettlementSummarySession,
+  setGroupSettlementSetup,
   setSettlementSummarySession,
+  type GroupSettlementSetup,
   type SettlementSummarySession,
 } from '../lib/receiptSession';
 
@@ -26,6 +31,8 @@ export default function SettlementSummaryScreen() {
   const [editingPersonId, setEditingPersonId] = useState<string | null>(null);
   const [draftName, setDraftName] = useState('');
   const [shareModalVisible, setShareModalVisible] = useState(false);
+  const [groupSetup, setGroupSetup] = useState<GroupSettlementSetup | null>(null);
+  const [groupCreated, setGroupCreated] = useState(false);
 
   useEffect(() => {
     const stored = getSettlementSummarySession();
@@ -33,6 +40,7 @@ export default function SettlementSummaryScreen() {
       router.replace('/instant-settlement');
       return;
     }
+    setGroupSetup(getGroupSettlementSetup());
     setSession(stored);
   }, [router]);
 
@@ -55,6 +63,20 @@ export default function SettlementSummaryScreen() {
       setSettlementSummarySession(updatedSession);
     }
     setEditingPersonId(null);
+  };
+
+  const handleCreateGroup = () => {
+    if (!groupSetup || groupCreated) return;
+    addGroup({
+      name: groupSetup.groupName,
+      members: session.people.map(({ id, name }) => ({ id, name })),
+    });
+    setGroupCreated(true);
+  };
+
+  const handleGoToGroups = () => {
+    setGroupSettlementSetup(null);
+    router.replace('/(tabs)/groups');
   };
 
   return (
@@ -126,11 +148,29 @@ export default function SettlementSummaryScreen() {
           <Pressable style={styles.actionButton} onPress={() => setShareModalVisible(true)}>
             <Text style={styles.actionButtonText}>Share bill</Text>
           </Pressable>
-          <Pressable style={styles.actionButton} onPress={() => router.replace('/(tabs)')}>
-            <Text style={styles.actionButtonText}>Back to Homepage</Text>
-          </Pressable>
+          {groupSetup ? (
+            <Pressable
+              style={[styles.actionButton, groupCreated && styles.actionButtonDisabled]}
+              onPress={handleCreateGroup}
+              disabled={groupCreated}
+            >
+              <Text style={styles.actionButtonText}>Create Group</Text>
+            </Pressable>
+          ) : (
+            <Pressable
+              style={styles.actionButton}
+              onPress={() => {
+                setGroupSettlementSetup(null);
+                router.replace('/(tabs)');
+              }}
+            >
+              <Text style={styles.actionButtonText}>Back to Homepage</Text>
+            </Pressable>
+          )}
         </View>
       </View>
+
+      <GroupCreatedModal visible={groupCreated} onGoToGroups={handleGoToGroups} />
 
       <ShareBillModal
         visible={shareModalVisible}
@@ -259,6 +299,9 @@ const styles = StyleSheet.create({
     paddingVertical: 20,
     alignItems: 'center',
     justifyContent: 'center',
+  },
+  actionButtonDisabled: {
+    opacity: 0.5,
   },
   actionButtonText: {
     fontSize: 17,

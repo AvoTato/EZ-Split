@@ -5,6 +5,7 @@ import { SafeAreaView } from 'react-native-safe-area-context';
 import { Pressable, ScrollView, StyleSheet, Text, TextInput, View } from 'react-native';
 
 import { goBack } from '../lib/navigation';
+import { setGroupSettlementSetup } from '../lib/receiptSession';
 
 const PURPLE = '#9B87F0';
 const PILL_GRAY = '#EFEFEF';
@@ -20,6 +21,30 @@ export default function CreateGroupSettlementScreen() {
     setMembers((prev) => prev.map((m, i) => (i === index ? text : m)));
   const removeMember = (index: number) =>
     setMembers((prev) => prev.filter((_, i) => i !== index));
+
+  const missingHint = !settlementName.trim()
+    ? 'Enter a settlement name to continue.'
+    : !groupName.trim()
+      ? 'Enter a group name to continue.'
+      : members.length === 0
+        ? 'Add at least one member to continue.'
+        : members.some((name) => !name.trim())
+          ? 'Fill in every member name or remove the empty ones.'
+          : null;
+  const isValid = missingHint === null;
+
+  const handleContinue = () => {
+    if (!isValid) return;
+    setGroupSettlementSetup({
+      settlementName: settlementName.trim(),
+      groupName: groupName.trim(),
+      members: members.map((name, index) => ({
+        id: `p${index + 1}`,
+        name: name.trim(),
+      })),
+    });
+    router.push('/upload-file?flow=group');
+  };
 
   return (
     <SafeAreaView style={styles.safeArea}>
@@ -78,7 +103,12 @@ export default function CreateGroupSettlementScreen() {
         </ScrollView>
 
         <View style={styles.footer}>
-          <Pressable style={styles.continueButton} onPress={() => router.push('/upload-file?flow=group')}>
+          {missingHint && <Text style={styles.hintText}>{missingHint}</Text>}
+          <Pressable
+            style={[styles.continueButton, !isValid && styles.continueButtonDisabled]}
+            onPress={handleContinue}
+            disabled={!isValid}
+          >
             <Text style={styles.continueButtonText}>Continue</Text>
           </Pressable>
         </View>
@@ -172,6 +202,15 @@ const styles = StyleSheet.create({
     paddingVertical: 20,
     alignItems: 'center',
     justifyContent: 'center',
+  },
+  continueButtonDisabled: {
+    opacity: 0.5,
+  },
+  hintText: {
+    fontSize: 13,
+    color: '#8A8A8A',
+    textAlign: 'center',
+    marginBottom: 12,
   },
   continueButtonText: {
     fontSize: 17,

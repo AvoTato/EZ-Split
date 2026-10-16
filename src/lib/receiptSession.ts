@@ -36,6 +36,22 @@ export type Person = {
   name: string;
 };
 
+export type GroupSettlementSetup = {
+  settlementName: string;
+  groupName: string;
+  members: Person[];
+};
+
+let groupSettlementSetup: GroupSettlementSetup | null = null;
+
+export function setGroupSettlementSetup(setup: GroupSettlementSetup | null) {
+  groupSettlementSetup = setup;
+}
+
+export function getGroupSettlementSetup() {
+  return groupSettlementSetup;
+}
+
 export type ItemAssignment = {
   itemIndex: number;
   personId: string;

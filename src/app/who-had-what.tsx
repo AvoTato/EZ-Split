@@ -1,12 +1,13 @@
 import { Ionicons } from '@expo/vector-icons';
 import { useRouter } from 'expo-router';
 import { useEffect, useRef, useState } from 'react';
-import { Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
+import { Pressable, ScrollView, StyleSheet, Text, TextInput, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
 import { goBack } from '../lib/navigation';
 import type { ParsedReceipt } from '../lib/parseReceipt';
 import {
+  getGroupSettlementSetup,
   getParsedReceipt,
   setWhoHadWhatSession,
   type ItemAssignment,
@@ -36,6 +37,11 @@ export default function WhoHadWhatScreen() {
       router.replace('/upload-receipt');
       return;
     }
+    const groupMembers = getGroupSettlementSetup()?.members ?? [];
+    if (groupMembers.length > 0) {
+      setPeople((prev) => (prev.length === 0 ? groupMembers : prev));
+      nextPersonId.current = groupMembers.length + 1;
+    }
     setReceipt(stored);
   }, [router]);
 
@@ -53,6 +59,9 @@ export default function WhoHadWhatScreen() {
     setPeople((prev) => [...prev, { id, name: '' }]);
     setExpandedPersonId(id);
   };
+
+  const updatePersonName = (personId: string, name: string) =>
+    setPeople((prev) => prev.map((p) => (p.id === personId ? { ...p, name } : p)));
 
   const toggleExpanded = (personId: string) =>
     setExpandedPersonId((prev) => (prev === personId ? null : personId));
@@ -93,7 +102,13 @@ export default function WhoHadWhatScreen() {
             return (
               <View key={person.id} style={styles.card}>
                 <View style={styles.cardHeader}>
-                  <Text style={styles.personLabel}>Person {index + 1}</Text>
+                  <TextInput
+                    style={styles.personNameInput}
+                    value={person.name}
+                    onChangeText={(text) => updatePersonName(person.id, text)}
+                    placeholder={`Person ${index + 1}`}
+                    placeholderTextColor={MUTED}
+                  />
                   <Pressable onPress={() => toggleExpanded(person.id)} hitSlop={8}>
                     <Ionicons
                       name={isExpanded ? 'chevron-up' : 'chevron-down'}
@@ -211,10 +226,15 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'space-between',
   },
-  personLabel: {
+  personNameInput: {
+    flex: 1,
     fontSize: 16,
     fontWeight: '700',
     color: '#000',
+    paddingVertical: 4,
+    marginRight: 12,
+    borderBottomWidth: 1,
+    borderBottomColor: PILL_GRAY,
   },
   checklist: {
     marginTop: 12,
