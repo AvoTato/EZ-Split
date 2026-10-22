@@ -54,7 +54,12 @@ export default function WhoHadWhatScreen() {
     assignments.find((a) => a.personId === personId && a.itemIndex === itemIndex)?.shares ?? 0;
 
   const addPerson = () => {
-    const id = `p${nextPersonId.current}`;
+    const taken = new Set(people.map((p) => p.id));
+    let id = `p${nextPersonId.current}`;
+    while (taken.has(id)) {
+      nextPersonId.current += 1;
+      id = `p${nextPersonId.current}`;
+    }
     nextPersonId.current += 1;
     setPeople((prev) => [...prev, { id, name: '' }]);
     setExpandedPersonId(id);
@@ -62,6 +67,12 @@ export default function WhoHadWhatScreen() {
 
   const updatePersonName = (personId: string, name: string) =>
     setPeople((prev) => prev.map((p) => (p.id === personId ? { ...p, name } : p)));
+
+  const removePerson = (personId: string) => {
+    setPeople((prev) => prev.filter((p) => p.id !== personId));
+    setAssignments((prev) => prev.filter((a) => a.personId !== personId));
+    setExpandedPersonId((prev) => (prev === personId ? null : prev));
+  };
 
   const toggleExpanded = (personId: string) =>
     setExpandedPersonId((prev) => (prev === personId ? null : personId));
@@ -109,6 +120,15 @@ export default function WhoHadWhatScreen() {
                     placeholder={`Person ${index + 1}`}
                     placeholderTextColor={MUTED}
                   />
+                  <Pressable
+                    accessibilityRole="button"
+                    accessibilityLabel={`Remove ${person.name || `Person ${index + 1}`}`}
+                    onPress={() => removePerson(person.id)}
+                    hitSlop={8}
+                    style={styles.removeButton}
+                  >
+                    <Ionicons name="trash-outline" size={20} color="#B42318" />
+                  </Pressable>
                   <Pressable onPress={() => toggleExpanded(person.id)} hitSlop={8}>
                     <Ionicons
                       name={isExpanded ? 'chevron-up' : 'chevron-down'}
@@ -235,6 +255,9 @@ const styles = StyleSheet.create({
     marginRight: 12,
     borderBottomWidth: 1,
     borderBottomColor: PILL_GRAY,
+  },
+  removeButton: {
+    marginRight: 12,
   },
   checklist: {
     marginTop: 12,

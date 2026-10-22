@@ -12,6 +12,9 @@ export default function RootLayout() {
       <Stack.Screen name="settlement-summary" />
       <Stack.Screen name="who-had-what" />
       <Stack.Screen name="item-quantities" />
+      <Stack.Screen name="receipt-history" />
+      <Stack.Screen name="create-new-group" />
+      <Stack.Screen name="group-members" />
     </Stack>
   );
 }

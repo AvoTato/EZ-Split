@@ -4,6 +4,7 @@ import { useEffect, useState } from 'react';
 import { Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
+import ReceiptDetectedCard from '../components/ReceiptDetectedCard';
 import { goBack } from '../lib/navigation';
 import type { ParsedReceipt } from '../lib/parseReceipt';
 import {
@@ -16,19 +17,9 @@ import {
 
 const PURPLE = '#9B87F0';
 const PILL_GRAY = '#EFEFEF';
-const GREEN = '#2E7D32';
 const MUTED = '#8A8A8A';
 
 type SplitMode = 'equal' | 'separate';
-
-function money(value: number) {
-  return `RM ${value.toFixed(2)}`;
-}
-
-function pctOf(part: number | null, whole: number | null) {
-  if (part === null || whole === null || whole === 0) return null;
-  return Math.round((part / whole) * 100);
-}
 
 export default function InstantSettlementScreen() {
   const router = useRouter();
@@ -54,9 +45,6 @@ export default function InstantSettlementScreen() {
   if (!receipt) return null;
 
   const isGroup = members.length > 0;
-
-  const taxPct = pctOf(receipt.tax, receipt.subtotal);
-  const servicePct = pctOf(receipt.serviceCharge, receipt.subtotal);
 
   return (
     <SafeAreaView style={styles.safeArea}>
@@ -88,50 +76,7 @@ export default function InstantSettlementScreen() {
             </Pressable>
           </View>
 
-          <View style={styles.card}>
-            <View style={styles.detectedRow}>
-              <Ionicons name="checkmark" size={16} color={GREEN} />
-              <Text style={styles.detectedText}>Receipt detected</Text>
-            </View>
-
-            {receipt.needsReview && (
-              <Text style={styles.reviewText}>
-                Some amounts may not have been read correctly. Please check the items against your receipt.
-              </Text>
-            )}
-
-            {receipt.items.map((item, index) => (
-              <View key={index} style={styles.row}>
-                <Text style={styles.rowText}>{item.qty > 1 ? `${item.qty}× ${item.name}` : item.name}</Text>
-                <Text style={styles.rowTextBold}>{money(item.price)}</Text>
-              </View>
-            ))}
-
-            <View style={styles.divider} />
-
-            {receipt.tax !== null && (
-              <View style={styles.row}>
-                <Text style={styles.mutedText}>SST{taxPct !== null ? ` (${taxPct}%)` : ''}</Text>
-                <Text style={styles.mutedText}>{money(receipt.tax)}</Text>
-              </View>
-            )}
-
-            {receipt.serviceCharge !== null && (
-              <View style={styles.row}>
-                <Text style={styles.mutedText}>
-                  Service Charge{servicePct !== null ? ` (${servicePct}%)` : ''}
-                </Text>
-                <Text style={styles.mutedText}>{money(receipt.serviceCharge)}</Text>
-              </View>
-            )}
-
-            {receipt.total !== null && (
-              <View style={[styles.row, styles.totalRow]}>
-                <Text style={styles.totalText}>Total</Text>
-                <Text style={styles.totalText}>{money(receipt.total)}</Text>
-              </View>
-            )}
-          </View>
+          <ReceiptDetectedCard receipt={receipt} />
 
           {splitMode === 'equal' && isGroup && (
             <View style={styles.membersCard}>
@@ -193,11 +138,6 @@ export default function InstantSettlementScreen() {
 }
 
 const styles = StyleSheet.create({
-  reviewText: {
-    color: '#B45309',
-    fontSize: 13,
-    marginBottom: 8,
-  },
   safeArea: {
     flex: 1,
     backgroundColor: '#fff',
@@ -250,55 +190,6 @@ const styles = StyleSheet.create({
   segmentTextActive: {
     color: '#fff',
     fontWeight: '700',
-  },
-  card: {
-    backgroundColor: '#fff',
-    borderRadius: 16,
-    padding: 20,
-    boxShadow: '0px 2px 8px rgba(0, 0, 0, 0.08)',
-    elevation: 3,
-  },
-  detectedRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 4,
-    marginBottom: 12,
-  },
-  detectedText: {
-    fontSize: 13,
-    fontWeight: '700',
-    color: GREEN,
-  },
-  row: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    paddingVertical: 6,
-  },
-  rowText: {
-    fontSize: 15,
-    color: '#000',
-  },
-  rowTextBold: {
-    fontSize: 15,
-    fontWeight: '600',
-    color: '#000',
-  },
-  divider: {
-    height: 1,
-    backgroundColor: '#E5E5E5',
-    marginVertical: 8,
-  },
-  mutedText: {
-    fontSize: 14,
-    color: MUTED,
-  },
-  totalRow: {
-    marginTop: 4,
-  },
-  totalText: {
-    fontSize: 17,
-    fontWeight: '700',
-    color: '#000',
   },
   paxRow: {
     flexDirection: 'row',
