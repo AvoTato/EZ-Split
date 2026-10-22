@@ -1,15 +1,17 @@
 import { Ionicons } from '@expo/vector-icons';
-import { useRouter } from 'expo-router';
+import { useLocalSearchParams, useRouter } from 'expo-router';
 import { useEffect, useState } from 'react';
 import { Pressable, ScrollView, StyleSheet, Text, TextInput, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
 import GroupCreatedModal from '../components/GroupCreatedModal';
 import ShareBillModal from '../components/ShareBillModal';
-import { addGroup } from '../lib/groups';
+import ReceiptDetectedCard from '../components/ReceiptDetectedCard';
+import { addGroup, addSettlement, getGroup } from '../lib/groups';
 import { goBack } from '../lib/navigation';
 import {
   getGroupSettlementSetup,
+  getParsedReceipt,
   getSettlementSummarySession,
   setGroupSettlementSetup,
   setSettlementSummarySession,
@@ -27,12 +29,19 @@ function money(value: number) {
 
 export default function SettlementSummaryScreen() {
   const router = useRouter();
+  const { groupId, settlementId } = useLocalSearchParams<{ groupId?: string; settlementId?: string }>();
+  const historyReceipt =
+    groupId && settlementId
+      ? getGroup(groupId)?.settlements?.find((s) => s.id === settlementId)?.receipt ?? null
+      : null;
+  const isHistory = Boolean(groupId && settlementId);
   const [session, setSession] = useState<SettlementSummarySession | null>(null);
   const [editingPersonId, setEditingPersonId] = useState<string | null>(null);
   const [draftName, setDraftName] = useState('');
   const [shareModalVisible, setShareModalVisible] = useState(false);
   const [groupSetup, setGroupSetup] = useState<GroupSettlementSetup | null>(null);
   const [groupCreated, setGroupCreated] = useState(false);
+  const [settlementSaved, setSettlementSaved] = useState(false);
 
   useEffect(() => {
     const stored = getSettlementSummarySession();
@@ -67,11 +76,31 @@ export default function SettlementSummaryScreen() {
 
   const handleCreateGroup = () => {
     if (!groupSetup || groupCreated) return;
-    addGroup({
+    const group = addGroup({
       name: groupSetup.groupName,
       members: session.people.map(({ id, name }) => ({ id, name })),
     });
+    addSettlement(group.id, {
+      name: groupSetup.settlementName,
+      createdAt: Date.now(),
+      summary: session,
+      receipt: getParsedReceipt(),
+    });
     setGroupCreated(true);
+  };
+
+  const handleSaveSettlement = () => {
+    if (!groupSetup?.groupId || settlementSaved) return;
+    const savedGroupId = groupSetup.groupId;
+    addSettlement(savedGroupId, {
+      name: groupSetup.settlementName,
+      createdAt: Date.now(),
+      summary: session,
+      receipt: getParsedReceipt(),
+    });
+    setSettlementSaved(true);
+    setGroupSettlementSetup(null);
+    router.replace('/(tabs)/groups');
   };
 
   const handleGoToGroups = () => {
@@ -87,7 +116,7 @@ export default function SettlementSummaryScreen() {
             <Ionicons name="chevron-back" size={26} color="#000" />
           </Pressable>
           <View>
-            <Text style={styles.headerEyebrow}>Instant Settlement</Text>
+            <Text style={styles.headerEyebrow}>{isHistory ? 'Receipt History' : 'Instant Settlement'}</Text>
             <Text style={styles.headerTitle}>Settlement Summary</Text>
           </View>
         </View>
@@ -98,7 +127,7 @@ export default function SettlementSummaryScreen() {
               <View key={person.id}>
                 <View style={styles.row}>
                   <View style={styles.nameGroup}>
-                    {editingPersonId === person.id ? (
+                    {!isHistory && editingPersonId === person.id ? (
                       <TextInput
                         style={styles.nameInput}
                         value={draftName}
@@ -110,9 +139,11 @@ export default function SettlementSummaryScreen() {
                     ) : (
                       <>
                         <Text style={styles.rowText}>{person.name}</Text>
-                        <Pressable onPress={() => startEditing(person.id, person.name)} hitSlop={8}>
-                          <Ionicons name="pencil" size={14} color={MUTED} />
-                        </Pressable>
+                        {!isHistory && (
+                          <Pressable onPress={() => startEditing(person.id, person.name)} hitSlop={8}>
+                            <Ionicons name="pencil" size={14} color={MUTED} />
+                          </Pressable>
+                        )}
                       </>
                     )}
                   </View>
@@ -142,13 +173,27 @@ export default function SettlementSummaryScreen() {
               ))}
             </View>
           )}
+
+          {historyReceipt && (
+            <View style={styles.receiptReference}>
+              <ReceiptDetectedCard receipt={historyReceipt} />
+            </View>
+          )}
         </ScrollView>
 
         <View style={styles.footer}>
           <Pressable style={styles.actionButton} onPress={() => setShareModalVisible(true)}>
             <Text style={styles.actionButtonText}>Share bill</Text>
           </Pressable>
-          {groupSetup ? (
+          {groupSetup?.groupId ? (
+            <Pressable
+              style={[styles.actionButton, settlementSaved && styles.actionButtonDisabled]}
+              onPress={handleSaveSettlement}
+              disabled={settlementSaved}
+            >
+              <Text style={styles.actionButtonText}>Save Settlement</Text>
+            </Pressable>
+          ) : groupSetup ? (
             <Pressable
               style={[styles.actionButton, groupCreated && styles.actionButtonDisabled]}
               onPress={handleCreateGroup}
@@ -262,6 +307,9 @@ const styles = StyleSheet.create({
   noteText: {
     fontSize: 13,
     color: MUTED,
+  },
+  receiptReference: {
+    marginTop: 16,
   },
   unassignedCard: {
     backgroundColor: PILL_GRAY,

@@ -40,6 +40,7 @@ export type GroupSettlementSetup = {
   settlementName: string;
   groupName: string;
   members: Person[];
+  groupId?: string;
 };
 
 let groupSettlementSetup: GroupSettlementSetup | null = null;

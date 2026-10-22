@@ -1,24 +1,32 @@
 import { Ionicons } from '@expo/vector-icons';
-import { useRouter } from 'expo-router';
+import { useLocalSearchParams, useRouter } from 'expo-router';
 import { useState } from 'react';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { Pressable, ScrollView, StyleSheet, Text, TextInput, View } from 'react-native';
 
+import { getGroup, updateGroup } from '../lib/groups';
 import { goBack } from '../lib/navigation';
 import { setGroupSettlementSetup } from '../lib/receiptSession';
 
 const PURPLE = '#9B87F0';
 const PILL_GRAY = '#EFEFEF';
 
+type MemberRow = { id: string | null; name: string };
+
 export default function CreateGroupSettlementScreen() {
   const router = useRouter();
+  const { groupId } = useLocalSearchParams<{ groupId?: string }>();
+  const existingGroup = groupId ? getGroup(groupId) : undefined;
+  const isExistingGroup = Boolean(existingGroup);
   const [settlementName, setSettlementName] = useState('');
-  const [groupName, setGroupName] = useState('');
-  const [members, setMembers] = useState<string[]>([]);
+  const [groupName, setGroupName] = useState(existingGroup?.name ?? '');
+  const [members, setMembers] = useState<MemberRow[]>(
+    () => existingGroup?.members?.map((member) => ({ id: member.id, name: member.name })) ?? [],
+  );
 
-  const addMember = () => setMembers((prev) => [...prev, '']);
+  const addMember = () => setMembers((prev) => [...prev, { id: null, name: '' }]);
   const updateMember = (index: number, text: string) =>
-    setMembers((prev) => prev.map((m, i) => (i === index ? text : m)));
+    setMembers((prev) => prev.map((m, i) => (i === index ? { ...m, name: text } : m)));
   const removeMember = (index: number) =>
     setMembers((prev) => prev.filter((_, i) => i !== index));
 
@@ -26,22 +34,32 @@ export default function CreateGroupSettlementScreen() {
     ? 'Enter a settlement name to continue.'
     : !groupName.trim()
       ? 'Enter a group name to continue.'
-      : members.length === 0
-        ? 'Add at least one member to continue.'
-        : members.some((name) => !name.trim())
-          ? 'Fill in every member name or remove the empty ones.'
-          : null;
+      : isExistingGroup && !existingGroup?.members?.length
+        ? 'Add members to this group from the Members button first.'
+        : !isExistingGroup && members.length === 0
+          ? 'Add at least one member to continue.'
+          : members.some((member) => !member.name.trim())
+            ? 'Fill in every member name or remove the empty ones.'
+            : null;
   const isValid = missingHint === null;
 
   const handleContinue = () => {
     if (!isValid) return;
+    const finalMembers = existingGroup
+      ? (existingGroup.members ?? [])
+      : members.map((member, index) => ({
+          id: member.id ?? `p${index + 1}`,
+          name: member.name.trim(),
+        }));
+    const finalGroupName = groupName.trim();
+    if (existingGroup) {
+      updateGroup(existingGroup.id, { name: finalGroupName, members: finalMembers });
+    }
     setGroupSettlementSetup({
       settlementName: settlementName.trim(),
-      groupName: groupName.trim(),
-      members: members.map((name, index) => ({
-        id: `p${index + 1}`,
-        name: name.trim(),
-      })),
+      groupName: finalGroupName,
+      members: finalMembers,
+      groupId: existingGroup?.id,
     });
     router.push('/upload-file?flow=group');
   };
@@ -53,7 +71,9 @@ export default function CreateGroupSettlementScreen() {
           <Pressable onPress={() => goBack(router)} hitSlop={12}>
             <Ionicons name="chevron-back" size={26} color="#000" />
           </Pressable>
-          <Text style={styles.headerTitle}>Create Group Settlement</Text>
+          <Text style={styles.headerTitle}>
+            {isExistingGroup ? 'Create New Settlement' : 'Create Group Settlement'}
+          </Text>
         </View>
 
         <View style={styles.divider} />
@@ -79,27 +99,31 @@ export default function CreateGroupSettlementScreen() {
             textAlign="center"
           />
 
-          <Text style={styles.fieldLabel}>Add members :</Text>
-          <View style={styles.membersList}>
-            {members.map((member, index) => (
-              <View key={index} style={styles.memberRow}>
-                <TextInput
-                  style={[styles.pillInput, styles.memberInput]}
-                  value={member}
-                  onChangeText={(text) => updateMember(index, text)}
-                  placeholder="Member name"
-                  placeholderTextColor="#999"
-                  textAlign="center"
-                />
-                <Pressable onPress={() => removeMember(index)} hitSlop={8} style={styles.removeMemberButton}>
-                  <Ionicons name="close-circle" size={20} color="#999" />
+          {!isExistingGroup && (
+            <>
+              <Text style={styles.fieldLabel}>Add members :</Text>
+              <View style={styles.membersList}>
+                {members.map((member, index) => (
+                  <View key={member.id ?? `new-${index}`} style={styles.memberRow}>
+                    <TextInput
+                      style={[styles.pillInput, styles.memberInput]}
+                      value={member.name}
+                      onChangeText={(text) => updateMember(index, text)}
+                      placeholder="Member name"
+                      placeholderTextColor="#999"
+                      textAlign="center"
+                    />
+                    <Pressable onPress={() => removeMember(index)} hitSlop={8} style={styles.removeMemberButton}>
+                      <Ionicons name="close-circle" size={20} color="#999" />
+                    </Pressable>
+                  </View>
+                ))}
+                <Pressable style={styles.addMemberPill} onPress={addMember}>
+                  <Ionicons name="add" size={22} color="#000" />
                 </Pressable>
               </View>
-            ))}
-            <Pressable style={styles.addMemberPill} onPress={addMember}>
-              <Ionicons name="add" size={22} color="#000" />
-            </Pressable>
-          </View>
+            </>
+          )}
         </ScrollView>
 
         <View style={styles.footer}>

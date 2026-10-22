@@ -2,7 +2,6 @@ import { Ionicons } from '@expo/vector-icons';
 import { Stack, useFocusEffect, useRouter } from 'expo-router';
 import { useCallback, useState } from 'react';
 import {
-  Alert,
   KeyboardAvoidingView,
   Modal,
   Platform,
@@ -15,7 +14,7 @@ import {
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
-import { addGroup, getGroups, setGroups as storeGroups, type Group } from '../../lib/groups';
+import { getGroups, setGroups as storeGroups, type Group } from '../../lib/groups';
 import { setGroupSettlementSetup } from '../../lib/receiptSession';
 
 export default function GroupsScreen() {
@@ -48,14 +47,11 @@ export default function GroupsScreen() {
     const name = groupName.trim();
     if (!name) return;
 
-    if (editingGroupId !== null) {
-      storeGroups(getGroups().map((group) =>
-        group.id === editingGroupId ? { ...group, name } : group,
-      ));
-    } else {
-      addGroup({ name });
-      setSearch('');
-    }
+    if (editingGroupId === null) return;
+
+    storeGroups(getGroups().map((group) =>
+      group.id === editingGroupId ? { ...group, name } : group,
+    ));
     setGroups(getGroups());
     setModalVisible(false);
   };
@@ -67,16 +63,11 @@ export default function GroupsScreen() {
 
   const createSettlement = (group: Group) => {
     setGroupSettlementSetup(null);
-    router.push({
-      pathname: '/upload-file',
-      params: { flow: 'group', groupId: group.id, groupName: group.name },
-    });
+    router.push({ pathname: '/create-group-settlement', params: { groupId: group.id } });
   };
 
   const viewSettlements = (group: Group) => {
-    // TODO: Replace this with router.push to your actual settlements screen,
-    // passing group.id so that screen can load the correct settlements.
-    Alert.alert(group.name, 'Connect this button to your settlements screen.');
+    router.push({ pathname: '/receipt-history', params: { groupId: group.id } });
   };
 
   return (
@@ -171,11 +162,19 @@ export default function GroupsScreen() {
                 </Pressable>
                 <Pressable
                   accessibilityRole="button"
-                  accessibilityLabel={`View and edit settlements for ${group.name}`}
+                  accessibilityLabel={`View settlements for ${group.name}`}
                   onPress={() => viewSettlements(group)}
                   style={({ pressed }) => [styles.cardButton, pressed && styles.pressed]}
                 >
-                  <Text style={styles.cardButtonText}>View and edit Settlements</Text>
+                  <Text style={styles.cardButtonText}>View settlements</Text>
+                </Pressable>
+                <Pressable
+                  accessibilityRole="button"
+                  accessibilityLabel={`Members of ${group.name}`}
+                  onPress={() => router.push({ pathname: '/group-members', params: { groupId: group.id } })}
+                  style={({ pressed }) => [styles.cardButton, pressed && styles.pressed]}
+                >
+                  <Text style={styles.cardButtonText}>Members</Text>
                 </Pressable>
               </View>
             ))}
@@ -185,7 +184,7 @@ export default function GroupsScreen() {
 
           <Pressable
             accessibilityRole="button"
-            onPress={() => openGroupEditor()}
+            onPress={() => router.push('/create-new-group')}
             style={({ pressed }) => [styles.createGroupButton, pressed && styles.pressed]}
           >
             <Ionicons name="add-outline" size={34} color="#111" />
@@ -199,7 +198,7 @@ export default function GroupsScreen() {
       <Modal visible={modalVisible} transparent animationType="fade" onRequestClose={() => setModalVisible(false)}>
         <KeyboardAvoidingView style={styles.modalOverlay} behavior={Platform.OS === 'ios' ? 'padding' : 'height'}>
           <View style={styles.modalCard} accessibilityViewIsModal>
-            <Text style={styles.modalTitle}>{editingGroupId !== null ? 'Rename group' : 'Create new group'}</Text>
+            <Text style={styles.modalTitle}>Rename group</Text>
             <TextInput
               accessibilityLabel="Group name"
               style={styles.modalInput}
