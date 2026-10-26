@@ -1,0 +1,19 @@
+{
+  "name": "ez-split-api",
+  "main": "src/index.ts",
+  "compatibility_date": "2026-10-01",
+  "vars": {
+    "MODEL": "claude-haiku-5-5",
+    "ALLOWED_ORIGINS": "http://localhost:8081,http://localhost:19006"
+  },
+  "ratelimits": [
+    {
+      "name": "RATE_LIMITER",
+      "namespace_id": "48213",
+      "simple": {
+        "limit": 10,
+        "period": 60
+      }
+    }
+  ]
+}
