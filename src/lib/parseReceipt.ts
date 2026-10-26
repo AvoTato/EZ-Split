@@ -7,6 +7,9 @@ export type ReceiptItem = {
 export type ParsedReceipt = {
   items: ReceiptItem[];
   subtotal: number | null;
+  // Stored as a positive amount. Receipts differ on whether the printed subtotal is
+  // before or after the discount, so consumers should accept either.
+  discount: number | null;
   serviceCharge: number | null;
   tax: number | null;
   total: number | null;
@@ -368,6 +371,13 @@ function tidyName(name: string): string {
     .trim();
 }
 
+// The subtotal may be printed before or after the discount, so both readings are valid.
+function expectedTotalsFor(receipt: ParsedReceipt): number[] {
+  if (receipt.subtotal === null) return [];
+  const base = receipt.subtotal + (receipt.tax ?? 0) + (receipt.serviceCharge ?? 0);
+  return receipt.discount ? [base, base - receipt.discount] : [base];
+}
+
 function toNumber(raw: string): number {
   // Strip thousands separators, then normalize the decimal comma (e.g. "1,234.50" or "1.234,50").
   return parseFloat(raw.replace(/,(?=\d{3}(\D|$))/g, '').replace(',', '.'));
@@ -452,6 +462,7 @@ export function parseReceiptText(rawText: string): ParsedReceipt {
   const result: ParsedReceipt = {
     items: [],
     subtotal: null,
+    discount: null,
     serviceCharge: null,
     tax: null,
     total: null,
@@ -510,7 +521,7 @@ export function parseReceiptText(rawText: string): ParsedReceipt {
       continue;
     }
     if (DISCOUNT_RE.test(lower)) {
-      if (price !== 0) result.needsReview = true;
+      if (price !== 0) result.discount = (result.discount ?? 0) + price;
       previousWasItem = false;
       continue;
     }
@@ -593,12 +604,10 @@ export function parseReceiptText(rawText: string): ParsedReceipt {
     }
   }
 
-  const expectedTotal =
-    result.subtotal === null ? null : result.subtotal + (result.tax ?? 0) + (result.serviceCharge ?? 0);
-  const reconciledTotal =
-    expectedTotal === null
-      ? undefined
-      : [...totalCandidates].reverse().find((c) => Math.abs(c.value - expectedTotal) <= 0.1);
+  const expectedTotals = expectedTotalsFor(result);
+  const reconciledTotal = [...totalCandidates]
+    .reverse()
+    .find((c) => expectedTotals.some((expected) => Math.abs(c.value - expected) <= 0.1));
   if (reconciledTotal) {
     result.total = reconciledTotal.value;
   } else if (totalCandidates.length > 0) {
@@ -610,12 +619,17 @@ export function parseReceiptText(rawText: string): ParsedReceipt {
   result.items = candidates.map(({ name, price, qty }) => ({ name, price, qty }));
 
   const itemsSum = result.items.reduce((sum, item) => sum + item.price, 0);
-  if (result.subtotal !== null && Math.abs(itemsSum - result.subtotal) > 0.01) {
+  const discount = result.discount ?? 0;
+  if (
+    result.subtotal !== null &&
+    Math.abs(itemsSum - result.subtotal) > 0.01 &&
+    Math.abs(itemsSum - discount - result.subtotal) > 0.01
+  ) {
     result.needsReview = true;
   }
-  if (result.subtotal !== null && result.total !== null) {
-    const expected = result.subtotal + (result.tax ?? 0) + (result.serviceCharge ?? 0);
-    if (Math.abs(result.total - expected) > 0.1) result.needsReview = true;
+  if (result.total !== null && expectedTotals.length > 0) {
+    const total = result.total;
+    if (expectedTotals.every((expected) => Math.abs(total - expected) > 0.1)) result.needsReview = true;
   }
 
   return result;

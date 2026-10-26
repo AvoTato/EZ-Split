@@ -1,15 +1,26 @@
 import { Ionicons } from '@expo/vector-icons';
 import { useRouter } from 'expo-router';
 import { useEffect, useState } from 'react';
-import { Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
+import {
+  KeyboardAvoidingView,
+  Platform,
+  Pressable,
+  ScrollView,
+  StyleSheet,
+  Text,
+  View,
+} from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
 import ReceiptDetectedCard from '../components/ReceiptDetectedCard';
+import ReceiptEditor from '../components/ReceiptEditor';
 import { goBack } from '../lib/navigation';
 import type { ParsedReceipt } from '../lib/parseReceipt';
+import { applyPatch, checkReceipt, type ReceiptPatch } from '../lib/receiptReview';
 import {
   getGroupSettlementSetup,
   getParsedReceipt,
+  setParsedReceipt,
   setSettlementSummarySession,
   type Person,
   type SettlementPerson,
@@ -27,6 +38,7 @@ export default function InstantSettlementScreen() {
   const [splitMode, setSplitMode] = useState<SplitMode>('separate');
   const [pax, setPax] = useState(2);
   const [members, setMembers] = useState<Person[]>([]);
+  const [editing, setEditing] = useState(false);
 
   useEffect(() => {
     const stored = getParsedReceipt();
@@ -45,10 +57,25 @@ export default function InstantSettlementScreen() {
   if (!receipt) return null;
 
   const isGroup = members.length > 0;
+  const warningCount = checkReceipt(receipt).filter((issue) => issue.severity === 'warning').length;
+
+  // Edits are written straight back to the session so every later screen (and the
+  // receipt saved to history) sees the corrected receipt.
+  const handlePatch = (patch: ReceiptPatch) => {
+    setReceipt((prev) => {
+      if (!prev) return prev;
+      const next = applyPatch(prev, patch);
+      setParsedReceipt(next);
+      return next;
+    });
+  };
 
   return (
     <SafeAreaView style={styles.safeArea}>
-      <View style={styles.page}>
+      <KeyboardAvoidingView
+        style={styles.page}
+        behavior={Platform.OS === 'ios' ? 'padding' : undefined}
+      >
         <View style={styles.header}>
           <Pressable onPress={() => goBack(router)} hitSlop={12}>
             <Ionicons name="chevron-back" size={26} color="#000" />
@@ -56,7 +83,7 @@ export default function InstantSettlementScreen() {
           <Text style={styles.headerTitle}>{isGroup ? 'Group Settlement' : 'Instant Settlement'}</Text>
         </View>
 
-        <ScrollView contentContainerStyle={styles.content}>
+        <ScrollView contentContainerStyle={styles.content} keyboardShouldPersistTaps="handled">
           <View style={styles.segmentedControl}>
             <Pressable
               style={[styles.segment, splitMode === 'equal' && styles.segmentActive]}
@@ -76,7 +103,19 @@ export default function InstantSettlementScreen() {
             </Pressable>
           </View>
 
-          <ReceiptDetectedCard receipt={receipt} />
+          {editing ? (
+            <ReceiptEditor
+              receipt={receipt}
+              onPatch={handlePatch}
+              onDone={() => setEditing(false)}
+            />
+          ) : (
+            <ReceiptDetectedCard
+              receipt={receipt}
+              onEditPress={() => setEditing(true)}
+              issueCount={warningCount}
+            />
+          )}
 
           {splitMode === 'equal' && isGroup && (
             <View style={styles.membersCard}>
@@ -110,7 +149,9 @@ export default function InstantSettlementScreen() {
           <Pressable
             style={styles.continueButton}
             onPress={() => {
-              if (splitMode === 'separate') {
+              if (editing) {
+                setEditing(false);
+              } else if (splitMode === 'separate') {
                 router.push('/who-had-what');
               } else {
                 const totalForSplit = receipt.total ?? 0;
@@ -129,10 +170,10 @@ export default function InstantSettlementScreen() {
               }
             }}
           >
-            <Text style={styles.continueButtonText}>Continue</Text>
+            <Text style={styles.continueButtonText}>{editing ? 'Done editing' : 'Continue'}</Text>
           </Pressable>
         </View>
-      </View>
+      </KeyboardAvoidingView>
     </SafeAreaView>
   );
 }
