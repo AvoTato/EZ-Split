@@ -3,7 +3,9 @@ import { useEffect, useRef } from 'react';
 import { Alert, Animated, Image, Platform, StyleSheet, Text, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
+import { ScanError, parseReceiptImage } from '../lib/api';
 import { callGoogleVisionOCR, parseReceiptText, type ParsedReceipt } from '../lib/parseReceipt';
+import { checkReceipt } from '../lib/receiptReview';
 import { setParsedReceipt, takePendingImage } from '../lib/receiptSession';
 
 const PURPLE = '#9B87F0';
@@ -33,23 +35,35 @@ export default function ReceiptProcessingScreen() {
     (async () => {
       let parsed: ParsedReceipt | null = null;
       try {
-        const ocr = await callGoogleVisionOCR(imageBase64);
-        // Left in intentionally: the parser is a heuristic, so seeing the raw OCR text
-        // is how we tell "Vision misread the receipt" apart from "the parser missed it."
-        console.log('Raw OCR text:\n' + ocr.text);
-        console.log('Rebuilt OCR rows:\n' + ocr.rowsText);
-        parsed = parseReceiptText(ocr.rowsText ?? ocr.text);
-        if (ocr.rowsText && parsed.items.length === 0 && parsed.total === null) {
-          parsed = parseReceiptText(ocr.text);
-        }
-        console.log('Parsed receipt:', parsed);
-        if (parsed.items.length === 0 && parsed.total === null) {
-          // Nothing recognizable came out of the text — treat it the same as an OCR failure
-          // rather than showing an empty settlement.
-          parsed = null;
-        }
+        const scanned = await parseReceiptImage(imageBase64);
+        parsed = {
+          ...scanned,
+          needsReview: checkReceipt(scanned).some((issue) => issue.severity === 'warning'),
+        };
       } catch (e) {
-        console.warn('Receipt OCR failed:', e);
+        console.warn('Receipt scan failed, falling back to OCR:', e instanceof ScanError ? e.code : e);
+      }
+
+      if (!parsed) {
+        try {
+          const ocr = await callGoogleVisionOCR(imageBase64);
+          // Left in intentionally: the parser is a heuristic, so seeing the raw OCR text
+          // is how we tell "Vision misread the receipt" apart from "the parser missed it."
+          console.log('Raw OCR text:\n' + ocr.text);
+          console.log('Rebuilt OCR rows:\n' + ocr.rowsText);
+          parsed = parseReceiptText(ocr.rowsText ?? ocr.text);
+          if (ocr.rowsText && parsed.items.length === 0 && parsed.total === null) {
+            parsed = parseReceiptText(ocr.text);
+          }
+          console.log('Parsed receipt:', parsed);
+          if (parsed.items.length === 0 && parsed.total === null) {
+            // Nothing recognizable came out of the text — treat it the same as an OCR failure
+            // rather than showing an empty settlement.
+            parsed = null;
+          }
+        } catch (e) {
+          console.warn('Receipt OCR failed:', e);
+        }
       }
 
       if (cancelled) return;
