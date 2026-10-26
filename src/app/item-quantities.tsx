@@ -12,8 +12,8 @@ import {
   setSettlementSummarySession,
   type ItemAssignment,
   type Person,
-  type SettlementPerson,
 } from '../lib/receiptSession';
+import { computeSettlement, itemShareCost, totalSharesByItem } from '../lib/settlement';
 
 const PURPLE = '#9B87F0';
 const PILL_GRAY = '#EFEFEF';
@@ -22,40 +22,6 @@ const MUTED = '#8A8A8A';
 
 function money(value: number) {
   return `RM ${value.toFixed(2)}`;
-}
-
-function computeSettlement(receipt: ParsedReceipt, people: Person[], assignments: ItemAssignment[]) {
-  const unassignedItems: { name: string; price: number }[] = [];
-  const totalSharesByItem: number[] = receipt.items.map((_, itemIndex) =>
-    assignments.filter((a) => a.itemIndex === itemIndex).reduce((sum, a) => sum + a.shares, 0)
-  );
-
-  receipt.items.forEach((item, itemIndex) => {
-    if (totalSharesByItem[itemIndex] === 0) {
-      unassignedItems.push({ name: item.name, price: item.price });
-    }
-  });
-
-  const perPersonSubtotal = people.map((person) => {
-    const costs = assignments
-      .filter((a) => a.personId === person.id && a.shares > 0)
-      .map((a) => receipt.items[a.itemIndex].price * a.shares);
-    return costs.reduce((sum, cost) => sum + cost, 0);
-  });
-
-  const assignedSubtotalAcrossAllPeople = perPersonSubtotal.reduce((sum, s) => sum + s, 0);
-
-  const settlementPeople: SettlementPerson[] = people.map((person, index) => {
-    const subtotal = perPersonSubtotal[index];
-    const personProportion =
-      assignedSubtotalAcrossAllPeople > 0 ? subtotal / assignedSubtotalAcrossAllPeople : 0;
-    const tax = (receipt.tax ?? 0) * personProportion;
-    const serviceCharge = (receipt.serviceCharge ?? 0) * personProportion;
-    const name = person.name.trim() || `Person ${index + 1}`;
-    return { id: person.id, name, amount: subtotal + tax + serviceCharge };
-  });
-
-  return { settlementPeople, unassignedItems };
 }
 
 export default function ItemQuantitiesScreen() {
@@ -85,8 +51,9 @@ export default function ItemQuantitiesScreen() {
   const getPersonAssignments = (personId: string) =>
     assignments.filter((a) => a.personId === personId && a.shares > 0);
 
+  const totalShares = totalSharesByItem(receipt, assignments);
   const getItemLiveCost = (itemIndex: number, shares: number) =>
-    receipt.items[itemIndex].price * shares;
+    itemShareCost(receipt.items[itemIndex], shares, totalShares[itemIndex]);
 
   const incrementShare = (personId: string, itemIndex: number) => {
     setAssignments((prev) =>

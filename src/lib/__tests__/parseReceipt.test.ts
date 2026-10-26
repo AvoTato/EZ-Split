@@ -378,6 +378,7 @@ test('reads the Halab Gate table receipt with unit price and total columns', () 
   assert.equal(parsed.subtotal, 153);
   assert.equal(parsed.serviceCharge, 15.3);
   assert.equal(parsed.tax, null);
+  assert.equal(parsed.discount, null);
   assert.equal(parsed.total, 168.3);
   assert.equal(parsed.needsReview, false);
 });
@@ -610,5 +611,34 @@ test('reads the real Vision output of the second Man Joe receipt', () => {
   assert.equal(parsed.serviceCharge, 6.14);
   assert.equal(parsed.tax, 6.14);
   assert.equal(parsed.total, 114.6);
+  assert.equal(parsed.needsReview, false);
+});
+
+test('keeps the discount when the subtotal is printed before it', () => {
+  const parsed = parseReceiptText(`KEDAI KOPI
+1 Nasi Lemak 12.00
+1 Teh Tarik 3.50
+SUBTOTAL 15.50
+DISCOUNT 1.55
+SST 6% 0.84
+TOTAL 14.79`);
+  assert.equal(parsed.items.length, 2);
+  assert.equal(parsed.subtotal, 15.5);
+  assert.equal(parsed.discount, 1.55);
+  assert.equal(parsed.total, 14.79);
+  assert.equal(parsed.needsReview, false);
+});
+
+test('keeps the discount when the subtotal is printed after it', () => {
+  const parsed = parseReceiptText(`KEDAI KOPI
+1 Nasi Lemak 12.00
+1 Teh Tarik 3.50
+DISCOUNT 1.50
+SUBTOTAL 14.00
+TOTAL 14.00`);
+  assert.equal(parsed.items.length, 2);
+  assert.equal(parsed.subtotal, 14);
+  assert.equal(parsed.discount, 1.5);
+  assert.equal(parsed.total, 14);
   assert.equal(parsed.needsReview, false);
 });
