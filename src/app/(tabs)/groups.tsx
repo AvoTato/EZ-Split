@@ -170,6 +170,14 @@ export default function GroupsScreen() {
                 </Pressable>
                 <Pressable
                   accessibilityRole="button"
+                  accessibilityLabel={`Balances for ${group.name}`}
+                  onPress={() => router.push({ pathname: '/group-balances', params: { groupId: group.id } })}
+                  style={({ pressed }) => [styles.cardButton, pressed && styles.pressed]}
+                >
+                  <Text style={styles.cardButtonText}>Balances</Text>
+                </Pressable>
+                <Pressable
+                  accessibilityRole="button"
                   accessibilityLabel={`Members of ${group.name}`}
                   onPress={() => router.push({ pathname: '/group-members', params: { groupId: group.id } })}
                   style={({ pressed }) => [styles.cardButton, pressed && styles.pressed]}

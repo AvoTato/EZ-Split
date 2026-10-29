@@ -1,7 +1,13 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
 
-import { MAX_IMAGE_BYTES, decodedSize, normalizeReceipt, parseRequestBody } from '../src/receipt.ts';
+import {
+  MAX_IMAGE_BYTES,
+  RECEIPT_PROMPT,
+  decodedSize,
+  normalizeReceipt,
+  parseRequestBody,
+} from '../src/receipt.ts';
 
 const TINY = Buffer.from('hello receipt').toString('base64');
 
@@ -78,4 +84,25 @@ test('rejects malformed receipts', () => {
   assert.equal(normalizeReceipt({ items: [{ name: 'A', price: '3', qty: 1 }] }), null);
   assert.equal(normalizeReceipt({ items: [{ name: 'A', price: Number.NaN, qty: 1 }] }), null);
   assert.equal(normalizeReceipt({ ...valid, total: 'free' }), null);
+});
+
+test('normalizeReceipt keeps negative item prices', () => {
+  const receipt = normalizeReceipt({
+    items: [
+      { name: 'BM BigBrkfst', price: 12.17, qty: 1 },
+      { name: 'S Hot Teh Tarik', price: -0.38, qty: 1 },
+    ],
+    subtotal: 11.79,
+    discount: null,
+    serviceCharge: null,
+    tax: 2.44,
+    total: 14.23,
+  });
+  assert.equal(receipt?.items[1].price, -0.38);
+});
+
+test('the prompt explains negative lines, the tax amount and the payable total', () => {
+  assert.ok(RECEIPT_PROMPT.includes('NEGATIVE price'));
+  assert.ok(RECEIPT_PROMPT.includes('never a total that includes tax'));
+  assert.ok(RECEIPT_PROMPT.includes('incl Tax'));
 });

@@ -4,9 +4,16 @@ import { useCallback, useState } from 'react';
 import { Alert, Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
+import { money } from '../lib/format';
 import { getGroup, removeSettlement, type GroupSettlement } from '../lib/groups';
+import { computeInsights } from '../lib/insights';
 import { goBack } from '../lib/navigation';
 import { setGroupSettlementSetup, setSettlementSummarySession } from '../lib/receiptSession';
+
+const PURPLE = '#9B87F0';
+const PURPLE_TINT = '#E4DCFB';
+const MUTED = '#8A8A8A';
+const BAR_AREA_HEIGHT = 72;
 
 function formatDate(timestamp: number) {
   const date = new Date(timestamp);
@@ -26,6 +33,9 @@ export default function ReceiptHistoryScreen() {
   }, [groupId]);
 
   useFocusEffect(load);
+
+  const insights = computeInsights(settlements);
+  const maxMonth = Math.max(...insights.months.map((month) => month.total), 0);
 
   const viewSettlement = (settlement: GroupSettlement) => {
     setGroupSettlementSetup(null);
@@ -108,6 +118,72 @@ export default function ReceiptHistoryScreen() {
               </View>
             </View>
           ))}
+          {settlements.length > 0 && (
+            <View style={styles.insightsCard}>
+              <Text style={styles.insightsTitle}>Insights</Text>
+              <View style={styles.statRow}>
+                <View style={styles.stat}>
+                  <Text style={styles.statValue}>{money(insights.thisMonthTotal)}</Text>
+                  <Text style={styles.statLabel}>
+                    This month · {insights.thisMonthCount} {insights.thisMonthCount === 1 ? 'bill' : 'bills'}
+                  </Text>
+                </View>
+                <View style={styles.stat}>
+                  <Text style={styles.statValue}>{money(insights.averageBill)}</Text>
+                  <Text style={styles.statLabel}>Average bill</Text>
+                </View>
+              </View>
+
+              <View style={styles.bars} accessibilityLabel="Spending over the last 6 months">
+                {insights.months.map((month, index) => {
+                  const isCurrent = index === insights.months.length - 1;
+                  const height =
+                    month.total > 0 && maxMonth > 0
+                      ? Math.max(6, (month.total / maxMonth) * BAR_AREA_HEIGHT)
+                      : 3;
+                  return (
+                    <View key={month.key} style={styles.barColumn}>
+                      <View style={styles.barTrack}>
+                        <View
+                          style={[
+                            styles.bar,
+                            { height },
+                            isCurrent ? styles.barCurrent : styles.barPast,
+                            month.total === 0 && styles.barEmpty,
+                          ]}
+                        />
+                      </View>
+                      <Text style={styles.barLabel}>{month.label}</Text>
+                    </View>
+                  );
+                })}
+              </View>
+
+              <View style={styles.factList}>
+                {insights.topPayer && (
+                  <Text style={styles.factText}>
+                    <Text style={styles.factStrong}>{insights.topPayer.name}</Text> usually pays (
+                    {insights.topPayer.count} {insights.topPayer.count === 1 ? 'bill' : 'bills'})
+                  </Text>
+                )}
+                {insights.topSpender && (
+                  <Text style={styles.factText}>
+                    <Text style={styles.factStrong}>{insights.topSpender.name}</Text> has the biggest share overall (
+                    {money(insights.topSpender.total)})
+                  </Text>
+                )}
+                {insights.biggestBill && (
+                  <Text style={styles.factText}>
+                    Biggest bill: <Text style={styles.factStrong}>{insights.biggestBill.name}</Text> (
+                    {money(insights.biggestBill.total)})
+                  </Text>
+                )}
+                {!insights.topPayer && (
+                  <Text style={styles.factHint}>Set who paid on each bill to see who usually pays.</Text>
+                )}
+              </View>
+            </View>
+          )}
         </ScrollView>
       </View>
     </SafeAreaView>
@@ -149,6 +225,31 @@ const styles = StyleSheet.create({
   viewButton: { minWidth: 96, paddingVertical: 6, borderRadius: 20, backgroundColor: '#3B7BFF', alignItems: 'center' },
   deleteButton: { minWidth: 96, paddingVertical: 6, borderRadius: 20, backgroundColor: '#E5484D', alignItems: 'center' },
   actionText: { fontSize: 16, fontWeight: '500', color: '#111' },
+  insightsCard: {
+    gap: 16,
+    padding: 18,
+    borderRadius: 16,
+    backgroundColor: '#fff',
+    borderWidth: 2,
+    borderColor: '#333',
+  },
+  insightsTitle: { fontSize: 20, fontWeight: '700', color: '#111' },
+  statRow: { flexDirection: 'row', gap: 12 },
+  stat: { flex: 1, gap: 2 },
+  statValue: { fontSize: 22, fontWeight: '700', color: PURPLE },
+  statLabel: { fontSize: 13, color: MUTED },
+  bars: { flexDirection: 'row', gap: 8, alignItems: 'flex-end' },
+  barColumn: { flex: 1, alignItems: 'center', gap: 6 },
+  barTrack: { height: BAR_AREA_HEIGHT, width: '100%', justifyContent: 'flex-end', alignItems: 'center' },
+  bar: { width: '70%', borderTopLeftRadius: 6, borderTopRightRadius: 6 },
+  barCurrent: { backgroundColor: PURPLE },
+  barPast: { backgroundColor: PURPLE_TINT },
+  barEmpty: { backgroundColor: '#E5E5E5' },
+  barLabel: { fontSize: 12, color: MUTED },
+  factList: { gap: 6 },
+  factText: { fontSize: 14, color: '#171717' },
+  factStrong: { fontWeight: '700' },
+  factHint: { fontSize: 13, color: MUTED },
   emptyText: { textAlign: 'center', paddingVertical: 24, color: '#75717F', fontSize: 16 },
   pressed: { opacity: 0.65 },
 });

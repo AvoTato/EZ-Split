@@ -173,3 +173,32 @@ test('accepts a subtotal printed before or after the discount', () => {
   assert.equal(expectedTotal(after), 19.72);
   assert.deepEqual(checkReceipt(after), []);
 });
+
+test('a negative item price is not reported as a missing price', () => {
+  const receipt: ParsedReceipt = {
+    items: [
+      { name: 'Burger', price: 10, qty: 1 },
+      { name: 'Coupon', price: -2, qty: 1 },
+    ],
+    subtotal: 8,
+    discount: null,
+    serviceCharge: null,
+    tax: null,
+    total: 8,
+    needsReview: false,
+  };
+  assert.deepEqual(checkReceipt(receipt), []);
+});
+
+test('a zero item price is still reported', () => {
+  const receipt: ParsedReceipt = {
+    items: [{ name: 'Burger', price: 0, qty: 1 }],
+    subtotal: null,
+    discount: null,
+    serviceCharge: null,
+    tax: null,
+    total: null,
+    needsReview: false,
+  };
+  assert.ok(checkReceipt(receipt).some((issue) => issue.id === 'price-0'));
+});

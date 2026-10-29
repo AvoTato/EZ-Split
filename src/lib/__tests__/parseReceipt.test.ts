@@ -2,7 +2,7 @@ import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import { test } from 'node:test';
 
-import { buildRowsFromWords, parseReceiptText } from '../parseReceipt.ts';
+import { buildRowsFromWords, foldNegativeLines, parseReceiptText } from '../parseReceipt.ts';
 
 const RECEIPT = (lemonCokeQty: string) => `MEE TARIK
 SUBANG SS15
@@ -641,4 +641,133 @@ TOTAL 14.00`);
   assert.equal(parsed.discount, 1.5);
   assert.equal(parsed.total, 14);
   assert.equal(parsed.needsReview, false);
+});
+
+const MCDONALDS = `Seating : 150
+Your order number is
+143
+Gerbang Alaf Restaurants Sdn Bhd
+(65351-M)
+Licensee of McDonald's
+Level 6, Bangunan TH, Damansara Uptown3
+No.3, Jalan SS21/39,47400 Petaling Jaya
+Selangor
+(CP ID No: B16-1808-31010640)
+McDonald's Sentul UOA DT (#408)
+TAX INVOICE
+MFY Side 1 / MFY Side 3
+INV# 104083100000213
+ORD #43 -CSO #31- 18/12/2020 09:55:38
+QTY ITEM TOTAL
+1 Nasi Lemak McD 5.65
+1 M 12oz HotMilo 2.07
+1 M Porridge 6.23
+1 Hash Brown 4.06
+1 BM BigBrkfst 12.17
+1 S Hot Teh Tarik -0.38
+1 BM 2HotCakes 11.23
+1 S Hot Teh Tarik -0.38
+1 RMHC Donation 0.91
+Subtotal 41.56
+Eat-In Total (incl Tax) 44.00
+Mastercard 44.00
+TOTAL 6% Service Tax 2.44
+* Indicates tax free items
+-- Cashless transaction information --`;
+
+test('a total labelled "(incl Tax)" is the total, and the separate tax line is the tax', () => {
+  const receipt = parseReceiptText(MCDONALDS);
+  assert.equal(receipt.subtotal, 41.56);
+  assert.equal(receipt.tax, 2.44);
+  assert.equal(receipt.total, 44);
+  assert.equal(receipt.serviceCharge, null);
+  assert.equal(receipt.needsReview, false);
+});
+
+test('negative lines are folded into the item above them', () => {
+  const receipt = parseReceiptText(MCDONALDS);
+  assert.deepEqual(receipt.items, [
+    { name: 'Nasi Lemak McD', price: 5.65, qty: 1 },
+    { name: 'M 12oz HotMilo', price: 2.07, qty: 1 },
+    { name: 'M Porridge', price: 6.23, qty: 1 },
+    { name: 'Hash Brown', price: 4.06, qty: 1 },
+    { name: 'BM BigBrkfst (S Hot Teh Tarik)', price: 11.79, qty: 1 },
+    { name: 'BM 2HotCakes (S Hot Teh Tarik)', price: 10.85, qty: 1 },
+    { name: 'RMHC Donation', price: 0.91, qty: 1 },
+  ]);
+  const sum = receipt.items.reduce((total, item) => total + item.price, 0);
+  assert.equal(Math.round(sum * 100), 4156);
+});
+
+test('"incl SST" and "inclusive of tax" qualifiers do not turn a total into tax', () => {
+  ['Total (incl. SST) 53.00', 'Total inclusive of tax 53.00'].forEach((totalLine) => {
+    const receipt = parseReceiptText(`1 Rice 50.00\nSubtotal 50.00\nSST 6% 3.00\n${totalLine}`);
+    assert.equal(receipt.tax, 3, totalLine);
+    assert.equal(receipt.total, 53, totalLine);
+  });
+});
+
+test('a minus sign only counts when it stands apart from the name', () => {
+  const spaced = parseReceiptText('1 Burger 10.00\n1 Coupon -2.00\nSubtotal 8.00');
+  assert.deepEqual(spaced.items, [{ name: 'Burger (Coupon)', price: 8, qty: 1 }]);
+
+  const dashed = parseReceiptText('1 Set-Meal 5.00\nSubtotal 5.00');
+  assert.deepEqual(dashed.items, [{ name: 'Set-Meal', price: 5, qty: 1 }]);
+});
+
+test('a discount line stays a positive discount amount', () => {
+  const receipt = parseReceiptText('1 Rice 10.00\nSubtotal 10.00\nDiscount -2.00');
+  assert.equal(receipt.discount, 2);
+});
+
+test('foldNegativeLines merges into the previous item, summing the price', () => {
+  const folded = foldNegativeLines([
+    { name: 'Burger', price: 10, qty: 1 },
+    { name: 'Coupon', price: -1.5, qty: 1 },
+    { name: 'Fries', price: 4, qty: 1 },
+  ]);
+  assert.deepEqual(folded, [
+    { name: 'Burger (Coupon)', price: 8.5, qty: 1 },
+    { name: 'Fries', price: 4, qty: 1 },
+  ]);
+});
+
+test('foldNegativeLines folds several negative lines under one item', () => {
+  const folded = foldNegativeLines([
+    { name: 'Set', price: 10, qty: 1 },
+    { name: 'Swap', price: -1, qty: 1 },
+    { name: 'Promo', price: -2, qty: 1 },
+  ]);
+  assert.deepEqual(folded, [{ name: 'Set (Swap) (Promo)', price: 7, qty: 1 }]);
+});
+
+test('foldNegativeLines keeps a negative line that has nothing to fold into', () => {
+  const lone = [{ name: 'Voucher', price: -5, qty: 1 }];
+  assert.deepEqual(foldNegativeLines(lone), lone);
+});
+
+test('foldNegativeLines keeps a line that would take the item to zero or below', () => {
+  const items = [
+    { name: 'Water', price: 2, qty: 1 },
+    { name: 'Promo', price: -3, qty: 1 },
+  ];
+  assert.deepEqual(foldNegativeLines(items), items);
+});
+
+test('foldNegativeLines keeps a line that would break an even per-unit price', () => {
+  const items = [
+    { name: 'Teh', price: 6, qty: 2 },
+    { name: 'Promo', price: -0.01, qty: 1 },
+  ];
+  assert.deepEqual(foldNegativeLines(items), items);
+});
+
+test('foldNegativeLines does not change the items it is given', () => {
+  const items = [
+    { name: 'Burger', price: 10, qty: 1 },
+    { name: 'Coupon', price: -1, qty: 1 },
+  ];
+  foldNegativeLines(items);
+  assert.equal(items[0].price, 10);
+  assert.equal(items.length, 2);
 });

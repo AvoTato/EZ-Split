@@ -100,7 +100,9 @@ export default function WhoHadWhatScreen() {
             <Ionicons name="chevron-back" size={26} color="#000" />
           </Pressable>
           <View>
-            <Text style={styles.headerEyebrow}>Instant Settlement</Text>
+            <Text style={styles.headerEyebrow}>
+              {getGroupSettlementSetup() ? 'Group Settlement' : 'Instant Settlement'}
+            </Text>
             <Text style={styles.headerTitle}>Who had what?</Text>
           </View>
         </View>

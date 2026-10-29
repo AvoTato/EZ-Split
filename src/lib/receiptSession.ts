@@ -85,6 +85,8 @@ export type SettlementSummarySession = {
   note: string;
   unassignedItems?: { name: string; price: number }[];
   pax?: number;
+  paidBy?: string;
+  settledIds?: string[];
 };
 
 let settlementSummarySession: SettlementSummarySession | null = null;
