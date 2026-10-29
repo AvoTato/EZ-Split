@@ -7,6 +7,7 @@ import { SafeAreaView } from 'react-native-safe-area-context';
 import { goBack } from '../lib/navigation';
 import type { ParsedReceipt } from '../lib/parseReceipt';
 import {
+  getGroupSettlementSetup,
   getParsedReceipt,
   getWhoHadWhatSession,
   setSettlementSummarySession,
@@ -94,7 +95,9 @@ export default function ItemQuantitiesScreen() {
             <Ionicons name="chevron-back" size={26} color="#000" />
           </Pressable>
           <View>
-            <Text style={styles.headerEyebrow}>Instant Settlement</Text>
+            <Text style={styles.headerEyebrow}>
+              {getGroupSettlementSetup() ? 'Group Settlement' : 'Instant Settlement'}
+            </Text>
             <Text style={styles.headerTitle}>How many did they have?</Text>
           </View>
         </View>

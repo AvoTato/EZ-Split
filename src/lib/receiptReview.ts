@@ -106,7 +106,7 @@ function checkItems(receipt: ParsedReceipt): ReceiptIssue[] {
     if (!item.name.trim()) {
       issues.push({ id: `name-${index}`, severity: 'warning', target, message: `Item ${index + 1} has no name.` });
     }
-    if (item.price <= 0) {
+    if (item.price === 0) {
       issues.push({
         id: `price-${index}`,
         severity: 'warning',

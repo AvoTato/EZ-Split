@@ -4,7 +4,12 @@ import { Alert, Animated, Image, Platform, StyleSheet, Text, View } from 'react-
 import { SafeAreaView } from 'react-native-safe-area-context';
 
 import { ScanError, parseReceiptImage } from '../lib/api';
-import { callGoogleVisionOCR, parseReceiptText, type ParsedReceipt } from '../lib/parseReceipt';
+import {
+  callGoogleVisionOCR,
+  foldNegativeLines,
+  parseReceiptText,
+  type ParsedReceipt,
+} from '../lib/parseReceipt';
 import { checkReceipt } from '../lib/receiptReview';
 import { setParsedReceipt, takePendingImage } from '../lib/receiptSession';
 
@@ -36,6 +41,7 @@ export default function ReceiptProcessingScreen() {
       let parsed: ParsedReceipt | null = null;
       try {
         const scanned = await parseReceiptImage(imageBase64);
+        scanned.items = foldNegativeLines(scanned.items);
         parsed = {
           ...scanned,
           needsReview: checkReceipt(scanned).some((issue) => issue.severity === 'warning'),

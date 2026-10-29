@@ -27,6 +27,7 @@ export class ScanError extends Error {
 export type MediaType = 'image/jpeg' | 'image/png' | 'image/webp';
 
 const REQUEST_TIMEOUT_MS = 40_000;
+const REMINDER_TIMEOUT_MS = 20_000;
 
 const SERVER_CODES: Record<string, ScanErrorCode> = {
   unauthorized: 'unauthorized',
@@ -132,4 +133,54 @@ export async function parseReceiptImage(base64: string): Promise<ParsedReceipt> 
     throw new ScanError('empty', 'No receipt was recognized in that image.');
   }
   return receipt;
+}
+
+export type ReminderDraftRequest = {
+  tone: string;
+  name: string;
+  amountLabel: string;
+  title?: string;
+  payerName?: string;
+  draft: string;
+};
+
+export async function rewriteReminder(request: ReminderDraftRequest): Promise<string> {
+  const baseUrl = process.env.EXPO_PUBLIC_API_URL;
+  const token = process.env.EXPO_PUBLIC_API_TOKEN;
+  if (!baseUrl || !token) {
+    throw new ScanError('not_configured', 'EXPO_PUBLIC_API_URL and EXPO_PUBLIC_API_TOKEN are not set.');
+  }
+
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), REMINDER_TIMEOUT_MS);
+  let response: Response;
+  try {
+    response = await fetch(`${baseUrl.replace(/\/+$/, '')}/draft-reminder`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
+      body: JSON.stringify(request),
+      signal: controller.signal,
+    });
+  } catch (error) {
+    if (controller.signal.aborted) throw new ScanError('timeout', 'Rewrite timed out.');
+    throw new ScanError('network', error instanceof Error ? error.message : 'Network request failed.');
+  } finally {
+    clearTimeout(timer);
+  }
+
+  let body: unknown = null;
+  try {
+    body = await response.json();
+  } catch {
+    body = null;
+  }
+
+  if (!response.ok) throw errorFromResponse(response.status, body);
+
+  const message =
+    typeof body === 'object' && body !== null ? (body as Record<string, unknown>).message : undefined;
+  if (typeof message !== 'string' || message.trim().length === 0) {
+    throw new ScanError('bad_response', 'Rewrite returned an unexpected response.');
+  }
+  return message.trim();
 }

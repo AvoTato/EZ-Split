@@ -7,7 +7,9 @@ import { SafeAreaView } from 'react-native-safe-area-context';
 import GroupCreatedModal from '../components/GroupCreatedModal';
 import ShareBillModal from '../components/ShareBillModal';
 import ReceiptDetectedCard from '../components/ReceiptDetectedCard';
-import { addGroup, addSettlement, getGroup } from '../lib/groups';
+import { addGroup, addSettlement, getGroup, updateSettlementSummary } from '../lib/groups';
+import { payBackStatus } from '../lib/debts';
+import { money } from '../lib/format';
 import { goBack } from '../lib/navigation';
 import {
   getGroupSettlementSetup,
@@ -22,10 +24,8 @@ import {
 const PURPLE = '#9B87F0';
 const PILL_GRAY = '#EFEFEF';
 const MUTED = '#8A8A8A';
-
-function money(value: number) {
-  return `RM ${value.toFixed(2)}`;
-}
+const GREEN = '#2E7D32';
+const GREEN_TINT = '#E6F4EA';
 
 export default function SettlementSummaryScreen() {
   const router = useRouter();
@@ -35,6 +35,10 @@ export default function SettlementSummaryScreen() {
       ? getGroup(groupId)?.settlements?.find((s) => s.id === settlementId)?.receipt ?? null
       : null;
   const isHistory = Boolean(groupId && settlementId);
+  const historyName =
+    groupId && settlementId
+      ? getGroup(groupId)?.settlements?.find((s) => s.id === settlementId)?.name
+      : undefined;
   const [session, setSession] = useState<SettlementSummarySession | null>(null);
   const [editingPersonId, setEditingPersonId] = useState<string | null>(null);
   const [draftName, setDraftName] = useState('');
@@ -55,6 +59,11 @@ export default function SettlementSummaryScreen() {
 
   if (!session) return null;
 
+  const billTitle = historyName ?? groupSetup?.settlementName;
+  const status = payBackStatus(session);
+  const payer = status.payer;
+  const billTotal = session.people.reduce((sum, person) => sum + person.amount, 0);
+
   const startEditing = (personId: string, currentName: string) => {
     setEditingPersonId(personId);
     setDraftName(currentName);
@@ -72,6 +81,33 @@ export default function SettlementSummaryScreen() {
       setSettlementSummarySession(updatedSession);
     }
     setEditingPersonId(null);
+  };
+
+  const saveSessionChange = (updatedSession: SettlementSummarySession) => {
+    setSession(updatedSession);
+    setSettlementSummarySession(updatedSession);
+    if (groupId && settlementId) {
+      updateSettlementSummary(groupId, settlementId, {
+        paidBy: updatedSession.paidBy,
+        settledIds: updatedSession.settledIds,
+      });
+    }
+  };
+
+  const selectPayer = (personId: string) => {
+    saveSessionChange({
+      ...session,
+      paidBy: session.paidBy === personId ? undefined : personId,
+      settledIds: undefined,
+    });
+  };
+
+  const togglePaidBack = (personId: string) => {
+    const current = session.settledIds ?? [];
+    const next = current.includes(personId)
+      ? current.filter((id) => id !== personId)
+      : [...current, personId];
+    saveSessionChange({ ...session, settledIds: next.length > 0 ? next : undefined });
   };
 
   const handleCreateGroup = () => {
@@ -116,7 +152,9 @@ export default function SettlementSummaryScreen() {
             <Ionicons name="chevron-back" size={26} color="#000" />
           </Pressable>
           <View>
-            <Text style={styles.headerEyebrow}>{isHistory ? 'Receipt History' : 'Instant Settlement'}</Text>
+            <Text style={styles.headerEyebrow}>
+              {isHistory ? 'Receipt History' : groupSetup ? 'Group Settlement' : 'Instant Settlement'}
+            </Text>
             <Text style={styles.headerTitle}>Settlement Summary</Text>
           </View>
         </View>
@@ -144,6 +182,41 @@ export default function SettlementSummaryScreen() {
                             <Ionicons name="pencil" size={14} color={MUTED} />
                           </Pressable>
                         )}
+                        {payer && person.id === payer.id && (
+                          <View style={styles.statusTag}>
+                            <Text style={styles.statusTagText}>Paid upfront</Text>
+                          </View>
+                        )}
+                        {payer && person.id !== payer.id && (
+                          <Pressable
+                            accessibilityRole="button"
+                            accessibilityLabel={
+                              session.settledIds?.includes(person.id)
+                                ? `${person.name} has paid ${payer.name} back. Tap to undo`
+                                : `Mark ${person.name} as paid back`
+                            }
+                            accessibilityState={{ selected: Boolean(session.settledIds?.includes(person.id)) }}
+                            onPress={() => togglePaidBack(person.id)}
+                            hitSlop={6}
+                            style={({ pressed }) => [
+                              styles.paidToggle,
+                              session.settledIds?.includes(person.id) && styles.paidToggleOn,
+                              pressed && styles.pressed,
+                            ]}
+                          >
+                            {session.settledIds?.includes(person.id) && (
+                              <Ionicons name="checkmark" size={14} color={GREEN} />
+                            )}
+                            <Text
+                              style={[
+                                styles.paidToggleText,
+                                session.settledIds?.includes(person.id) && styles.paidToggleTextOn,
+                              ]}
+                            >
+                              {session.settledIds?.includes(person.id) ? 'Paid' : 'Not paid'}
+                            </Text>
+                          </Pressable>
+                        )}
                       </>
                     )}
                   </View>
@@ -152,6 +225,63 @@ export default function SettlementSummaryScreen() {
                 {index < session.people.length - 1 && <View style={styles.divider} />}
               </View>
             ))}
+          </View>
+
+          <View style={styles.payerSection}>
+            <Text style={styles.payerTitle}>Who paid upfront?</Text>
+            <View style={styles.payerChips}>
+              {session.people.map((person) => {
+                const selected = session.paidBy === person.id;
+                return (
+                  <Pressable
+                    key={person.id}
+                    accessibilityRole="button"
+                    accessibilityLabel={`${person.name} paid upfront`}
+                    accessibilityState={{ selected }}
+                    onPress={() => selectPayer(person.id)}
+                    style={({ pressed }) => [
+                      styles.payerChip,
+                      selected && styles.payerChipSelected,
+                      pressed && styles.pressed,
+                    ]}
+                  >
+                    {selected && <Ionicons name="checkmark" size={16} color="#fff" />}
+                    <Text style={[styles.payerChipText, selected && styles.payerChipTextSelected]}>
+                      {person.name}
+                    </Text>
+                  </Pressable>
+                );
+              })}
+            </View>
+
+            {payer ? (
+              <View style={styles.payerCard}>
+                <Ionicons name="wallet-outline" size={20} color={GREEN} />
+                <View style={styles.payerCardBody}>
+                  <Text style={styles.payerCardText}>
+                    <Text style={styles.payerCardStrong}>{payer.name}</Text> paid upfront ({money(billTotal)})
+                  </Text>
+                  {status.friends.length > 0 && (
+                    <Text style={styles.payerCardSub}>
+                      {status.paidBackCount === status.friends.length
+                        ? `Everyone has paid ${payer.name} back`
+                        : `${status.paidBackCount} of ${status.friends.length} paid back · ${money(status.remaining)} still owed`}
+                    </Text>
+                  )}
+                </View>
+                <Pressable
+                  accessibilityRole="button"
+                  accessibilityLabel={`Clear ${payer.name} as the payer`}
+                  onPress={() => selectPayer(payer.id)}
+                  hitSlop={8}
+                  style={({ pressed }) => [styles.payerClear, pressed && styles.pressed]}
+                >
+                  <Ionicons name="close" size={16} color="#000" />
+                </Pressable>
+              </View>
+            ) : (
+              <Text style={styles.payerHint}>Pick who paid upfront to track who has paid them back.</Text>
+            )}
           </View>
 
           <View style={styles.noteRow}>
@@ -221,6 +351,7 @@ export default function SettlementSummaryScreen() {
         visible={shareModalVisible}
         onClose={() => setShareModalVisible(false)}
         session={session}
+        title={billTitle}
       />
     </SafeAreaView>
   );
@@ -296,6 +427,114 @@ const styles = StyleSheet.create({
   divider: {
     height: 1,
     backgroundColor: '#E5E5E5',
+  },
+  payerSection: {
+    marginTop: 16,
+  },
+  payerTitle: {
+    fontSize: 15,
+    fontWeight: '700',
+    color: '#000',
+    marginBottom: 8,
+  },
+  payerChips: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    gap: 8,
+  },
+  payerChip: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 4,
+    backgroundColor: PILL_GRAY,
+    borderRadius: 20,
+    paddingVertical: 8,
+    paddingHorizontal: 14,
+  },
+  payerChipSelected: {
+    backgroundColor: PURPLE,
+  },
+  payerChipText: {
+    fontSize: 14,
+    fontWeight: '600',
+    color: '#000',
+  },
+  payerChipTextSelected: {
+    color: '#fff',
+  },
+  payerCard: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 10,
+    marginTop: 12,
+    padding: 12,
+    borderRadius: 14,
+    backgroundColor: GREEN_TINT,
+  },
+  payerCardBody: {
+    flex: 1,
+    gap: 2,
+  },
+  payerCardText: {
+    fontSize: 14,
+    color: '#000',
+  },
+  payerCardSub: {
+    fontSize: 13,
+    color: MUTED,
+  },
+  paidToggle: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 4,
+    borderWidth: 1,
+    borderColor: '#C9C9C9',
+    borderRadius: 12,
+    paddingVertical: 3,
+    paddingHorizontal: 10,
+  },
+  paidToggleOn: {
+    borderColor: GREEN,
+    backgroundColor: GREEN_TINT,
+  },
+  paidToggleText: {
+    fontSize: 12,
+    fontWeight: '700',
+    color: MUTED,
+  },
+  paidToggleTextOn: {
+    color: GREEN,
+  },
+  payerCardStrong: {
+    fontWeight: '700',
+  },
+  payerClear: {
+    width: 28,
+    height: 28,
+    borderRadius: 14,
+    backgroundColor: '#fff',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  payerHint: {
+    marginTop: 10,
+    fontSize: 13,
+    color: MUTED,
+  },
+  statusTag: {
+    backgroundColor: PILL_GRAY,
+    borderRadius: 10,
+    paddingVertical: 2,
+    paddingHorizontal: 8,
+  },
+  statusTagText: {
+    fontSize: 12,
+    fontWeight: '600',
+    color: MUTED,
+  },
+
+  pressed: {
+    opacity: 0.7,
   },
   noteRow: {
     flexDirection: 'row',

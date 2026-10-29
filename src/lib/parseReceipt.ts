@@ -237,7 +237,7 @@ export async function callGoogleVisionOCR(base64Image: string): Promise<OcrResul
   return { text, rowsText: rows.length > 0 ? rows.join('\n') : null };
 }
 
-const PRICE_RE = /(?<![à@#]\s{0,3})((?:\d{1,3}(?:,\d{3})+|\d+)[.,]\d{2})\s*[A-Za-z]{0,3}\s*$/;
+const PRICE_RE = /(?<![à@#]\s{0,3})((?:(?<=^|\s)-)?(?:\d{1,3}(?:,\d{3})+|\d+)[.,]\d{2})\s*[A-Za-z]{0,3}\s*$/;
 const PRICE_ONLY_RE = /^[^\d]{0,6}(?:\d{1,3}(?:,\d{3})+|\d+)[.,]\d{2}\s*[A-Za-z]{0,3}\s*$/;
 const LEADING_QTY_RE = /^\s*(?:(\d{1,2})\s*[xX]\s*|[xX]\s*(\d{1,2})\s+|(\d{1,2})\s+(?=\S))/;
 const UNIT_PRICE_RE = /\s*[àA@#]\s*(\d+[.,]\d{2})\s*[A-Za-z]{0,4}\s*/g;
@@ -254,6 +254,7 @@ const TRAILING_CURRENCY_RE = /\s*(RM|MYR|SGD|USD|CHF|EUR|GBP|\$|€|£)\s*$/i;
 const ROUNDING_RE = /(rnd|round)/;
 const SERVICE_CHARGE_RE = /(svc|srv|service).*(chg|charge)|(chg|charge).*(svc|srv|service)/;
 const TAX_RE = /\b(sst|vat|tax|gst|mwst)\b/;
+const INCLUDES_TAX_RE = /\(?\s*(?:incl(?:uding|usive)?|inc)\.?\s*(?:of\s+)?(?:tax|sst|gst|vat)\s*\)?/g;
 const PAYMENT_METHOD_RE = /\b(visa|mastercard|master card|amex|cash|debit|credit card|card|duit\s*now|duitnow|paid|remain|remaining|change|tendered|nets|grabpay|touch\s*n\s*go|tng|paynow|alipay)\b/;
 const NET_SUBTOTAL_RE = /^\s*(?:qty\s+(\d+)\s+)?net\b(?!\s*total)/i;
 const DISCOUNT_RE = /discount/;
@@ -378,6 +379,26 @@ function expectedTotalsFor(receipt: ParsedReceipt): number[] {
   return receipt.discount ? [base, base - receipt.discount] : [base];
 }
 
+export function foldNegativeLines<T extends ReceiptItem>(items: T[]): T[] {
+  const folded: T[] = [];
+  for (const item of items) {
+    const previous = folded[folded.length - 1];
+    if (item.price >= 0 || !previous || previous.price <= 0) {
+      folded.push(item);
+      continue;
+    }
+    const cents = Math.round(previous.price * 100) + Math.round(item.price * 100);
+    if (cents <= 0 || cents % Math.max(previous.qty, 1) !== 0) {
+      folded.push(item);
+      continue;
+    }
+    const label = item.name.trim();
+    const name = label && !previous.name.includes(`(${label})`) ? `${previous.name} (${label})` : previous.name;
+    folded[folded.length - 1] = { ...previous, name, price: cents / 100 };
+  }
+  return folded;
+}
+
 function toNumber(raw: string): number {
   // Strip thousands separators, then normalize the decimal comma (e.g. "1,234.50" or "1.234,50").
   return parseFloat(raw.replace(/,(?=\d{3}(\D|$))/g, '').replace(',', '.'));
@@ -477,7 +498,7 @@ export function parseReceiptText(rawText: string): ParsedReceipt {
   let pendingCodeItem: Candidate | null = null;
 
   for (const line of lines) {
-    const lower = line.toLowerCase();
+    const lower = line.toLowerCase().replace(INCLUDES_TAX_RE, ' ');
     if (TAX_SUMMARY_RE.test(lower)) break;
 
     const priceMatch = line.match(PRICE_RE);
@@ -521,7 +542,7 @@ export function parseReceiptText(rawText: string): ParsedReceipt {
       continue;
     }
     if (DISCOUNT_RE.test(lower)) {
-      if (price !== 0) result.discount = (result.discount ?? 0) + price;
+      if (price !== 0) result.discount = (result.discount ?? 0) + Math.abs(price);
       previousWasItem = false;
       continue;
     }
@@ -616,7 +637,7 @@ export function parseReceiptText(rawText: string): ParsedReceipt {
   }
 
   reconcileQuantities(candidates, itemCount);
-  result.items = candidates.map(({ name, price, qty }) => ({ name, price, qty }));
+  result.items = foldNegativeLines(candidates).map(({ name, price, qty }) => ({ name, price, qty }));
 
   const itemsSum = result.items.reduce((sum, item) => sum + item.price, 0);
   const discount = result.discount ?? 0;

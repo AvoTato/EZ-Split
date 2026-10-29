@@ -1,16 +1,13 @@
 import { Ionicons } from '@expo/vector-icons';
 import { Pressable, StyleSheet, Text, View } from 'react-native';
 
+import { money } from '../lib/format';
 import type { ParsedReceipt } from '../lib/parseReceipt';
 
 const PURPLE = '#9B87F0';
 const GREEN = '#2E7D32';
 const MUTED = '#8A8A8A';
 const AMBER = '#B45309';
-
-function money(value: number) {
-  return `RM ${value.toFixed(2)}`;
-}
 
 function pctOf(part: number | null, whole: number | null) {
   if (part === null || whole === null || whole === 0) return null;
@@ -132,6 +129,8 @@ const styles = StyleSheet.create({
     paddingVertical: 6,
   },
   rowText: {
+    flexShrink: 1,
+    paddingRight: 12,
     fontSize: 15,
     color: '#000',
   },

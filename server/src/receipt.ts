@@ -54,7 +54,9 @@ Rules:
 - Lines that only describe options of the previous item (for example Cheese, Knife Cut, Iced, add-on notes without their own price) are NOT separate items. A line with its own price, including an "ADD ON" line, is an item.
 - Do not include subtotal, discount, service charge, tax, rounding adjustment, total, payment or change lines as items.
 - Keep zero-priced ordered lines as items with price 0.
-- subtotal: the printed subtotal. serviceCharge and tax: the printed amounts (service tax / SST / GST all count as tax unless a separate service charge line exists). total: the final amount payable (after rounding).
+- A line printed with a minus sign or a negative amount (for example "-0.38" under an item) is an item with a NEGATIVE price. Keep it in the order printed, right after the item it follows.
+- subtotal: the printed subtotal. serviceCharge and tax: the printed amounts (service tax / SST / GST all count as tax unless a separate service charge line exists). Use the tax amount itself (for example "6% Service Tax 2.44"), never a total that includes tax.
+- total: the final amount payable (after rounding), for example "Total" or "Eat-In Total (incl Tax)". Never use a payment method line (card, cash) or a tax line as the total.
 - discount: the total discount as a POSITIVE amount, or null if the receipt has none.
 - Use null for anything not printed or not readable. Never guess or compute numbers that are not printed.
 - Item names in English as printed; drop Chinese text.`;
