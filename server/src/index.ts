@@ -1,5 +1,6 @@
 import Anthropic from '@anthropic-ai/sdk';
 
+import { MAX_EXPLAIN_BODY_BYTES, buildExplainPrompt, cleanExplanation, parseExplainBody } from './explain.ts';
 import {
   MAX_BODY_BYTES,
   RECEIPT_PROMPT,
@@ -58,9 +59,18 @@ function fail(status: number, error: string, message: string, extra: Record<stri
   return json({ error, message }, status, extra);
 }
 
-async function parseReceipt(request: Request, env: Env, cors: Record<string, string>) {
+// Size check, bearer token, rate limit and JSON parse shared by every endpoint.
+// Returns the parsed body, or the error Response to send back.
+async function readAuthorizedJson(
+  request: Request,
+  env: Env,
+  cors: Record<string, string>,
+  route: string,
+  maxBytes: number,
+  tooLargeMessage: string
+): Promise<{ raw: unknown } | Response> {
   const declared = Number(request.headers.get('Content-Length') ?? 0);
-  if (declared > MAX_BODY_BYTES) return fail(413, 'too_large', 'Image is too large.', cors);
+  if (declared > maxBytes) return fail(413, 'too_large', tooLargeMessage, cors);
 
   const bearer = request.headers.get('Authorization')?.replace(/^Bearer\s+/i, '') ?? '';
   if (!env.APP_TOKEN || !safeEqual(bearer, env.APP_TOKEN)) {
@@ -68,19 +78,30 @@ async function parseReceipt(request: Request, env: Env, cors: Record<string, str
   }
 
   const client = request.headers.get('CF-Connecting-IP') ?? 'unknown';
-  const { success } = await env.RATE_LIMITER.limit({ key: `${client}:parse-receipt` });
+  const { success } = await env.RATE_LIMITER.limit({ key: `${client}:${route}` });
   if (!success) return fail(429, 'rate_limited', 'Too many requests. Try again in a minute.', cors);
 
   const text = await request.text();
-  if (text.length > MAX_BODY_BYTES) return fail(413, 'too_large', 'Image is too large.', cors);
+  if (text.length > maxBytes) return fail(413, 'too_large', tooLargeMessage, cors);
 
-  let raw: unknown;
   try {
-    raw = JSON.parse(text);
+    return { raw: JSON.parse(text) };
   } catch {
     return fail(400, 'bad_request', 'Body must be JSON.', cors);
   }
-  const parsed = parseRequestBody(raw);
+}
+
+function textOf(response: Anthropic.Message) {
+  return response.content
+    .filter((block): block is Anthropic.TextBlock => block.type === 'text')
+    .map((block) => block.text)
+    .join('');
+}
+
+async function parseReceipt(request: Request, env: Env, cors: Record<string, string>) {
+  const body = await readAuthorizedJson(request, env, cors, 'parse-receipt', MAX_BODY_BYTES, 'Image is too large.');
+  if (body instanceof Response) return body;
+  const parsed = parseRequestBody(body.raw);
   if (!parsed.ok) return fail(400, 'bad_request', parsed.error, cors);
 
   const anthropic = new Anthropic({ apiKey: env.ANTHROPIC_API_KEY, maxRetries: 1, timeout: 45_000 });
@@ -113,13 +134,9 @@ async function parseReceipt(request: Request, env: Env, cors: Record<string, str
   if (response.stop_reason === 'refusal') return fail(422, 'refused', "Couldn't read that image.", cors);
   if (response.stop_reason === 'max_tokens') return fail(502, 'upstream_error', 'Scanning failed. Try again.', cors);
 
-  const output = response.content
-    .filter((block): block is Anthropic.TextBlock => block.type === 'text')
-    .map((block) => block.text)
-    .join('');
   let receipt = null;
   try {
-    receipt = normalizeReceipt(JSON.parse(output));
+    receipt = normalizeReceipt(JSON.parse(textOf(response)));
   } catch {
     receipt = null;
   }
@@ -129,28 +146,16 @@ async function parseReceipt(request: Request, env: Env, cors: Record<string, str
 }
 
 async function draftReminder(request: Request, env: Env, cors: Record<string, string>) {
-  const declared = Number(request.headers.get('Content-Length') ?? 0);
-  if (declared > MAX_REMINDER_BODY_BYTES) return fail(413, 'too_large', 'Request is too large.', cors);
-
-  const bearer = request.headers.get('Authorization')?.replace(/^Bearer\s+/i, '') ?? '';
-  if (!env.APP_TOKEN || !safeEqual(bearer, env.APP_TOKEN)) {
-    return fail(401, 'unauthorized', 'Missing or invalid token.', cors);
-  }
-
-  const client = request.headers.get('CF-Connecting-IP') ?? 'unknown';
-  const { success } = await env.RATE_LIMITER.limit({ key: `${client}:draft-reminder` });
-  if (!success) return fail(429, 'rate_limited', 'Too many requests. Try again in a minute.', cors);
-
-  const text = await request.text();
-  if (text.length > MAX_REMINDER_BODY_BYTES) return fail(413, 'too_large', 'Request is too large.', cors);
-
-  let raw: unknown;
-  try {
-    raw = JSON.parse(text);
-  } catch {
-    return fail(400, 'bad_request', 'Body must be JSON.', cors);
-  }
-  const parsed = parseReminderBody(raw);
+  const body = await readAuthorizedJson(
+    request,
+    env,
+    cors,
+    'draft-reminder',
+    MAX_REMINDER_BODY_BYTES,
+    'Request is too large.'
+  );
+  if (body instanceof Response) return body;
+  const parsed = parseReminderBody(body.raw);
   if (!parsed.ok) return fail(400, 'bad_request', parsed.error, cors);
 
   const anthropic = new Anthropic({ apiKey: env.ANTHROPIC_API_KEY, maxRetries: 1, timeout: 20_000 });
@@ -172,14 +177,48 @@ async function draftReminder(request: Request, env: Env, cors: Record<string, st
     return fail(502, 'upstream_error', 'Could not rewrite the message. Try again.', cors);
   }
 
-  const output = response.content
-    .filter((block): block is Anthropic.TextBlock => block.type === 'text')
-    .map((block) => block.text)
-    .join('');
-  const message = cleanReminder(output, parsed.value);
+  const message = cleanReminder(textOf(response), parsed.value);
   if (!message) return fail(502, 'upstream_error', 'Could not rewrite the message. Try again.', cors);
 
   return json({ message }, 200, cors);
+}
+
+async function explainSplit(request: Request, env: Env, cors: Record<string, string>) {
+  const body = await readAuthorizedJson(
+    request,
+    env,
+    cors,
+    'explain-split',
+    MAX_EXPLAIN_BODY_BYTES,
+    'Request is too large.'
+  );
+  if (body instanceof Response) return body;
+  const parsed = parseExplainBody(body.raw);
+  if (!parsed.ok) return fail(400, 'bad_request', parsed.error, cors);
+
+  const anthropic = new Anthropic({ apiKey: env.ANTHROPIC_API_KEY, maxRetries: 1, timeout: 20_000 });
+  let response: Anthropic.Message;
+  try {
+    response = await anthropic.messages.create({
+      model: env.MODEL ?? DEFAULT_MODEL,
+      max_tokens: 500,
+      messages: [{ role: 'user', content: buildExplainPrompt(parsed.value) }],
+    });
+  } catch (error) {
+    if (error instanceof Anthropic.APIError && (error.status === 429 || error.status === 529)) {
+      return fail(503, 'busy', 'The assistant is busy. Try again shortly.', { 'Retry-After': '10', ...cors });
+    }
+    return fail(502, 'upstream_error', 'Could not explain the split. Try again.', cors);
+  }
+
+  if (response.stop_reason === 'refusal' || response.stop_reason === 'max_tokens') {
+    return fail(502, 'upstream_error', 'Could not explain the split. Try again.', cors);
+  }
+
+  const explanation = cleanExplanation(textOf(response), parsed.value);
+  if (!explanation) return fail(502, 'upstream_error', 'Could not explain the split. Try again.', cors);
+
+  return json({ explanation }, 200, cors);
 }
 
 export default {
@@ -197,6 +236,11 @@ export default {
     if (pathname === '/draft-reminder') {
       if (request.method !== 'POST') return fail(405, 'method_not_allowed', 'Use POST.', cors);
       return draftReminder(request, env, cors);
+    }
+
+    if (pathname === '/explain-split') {
+      if (request.method !== 'POST') return fail(405, 'method_not_allowed', 'Use POST.', cors);
+      return explainSplit(request, env, cors);
     }
 
     return fail(404, 'not_found', 'Not found.', cors);

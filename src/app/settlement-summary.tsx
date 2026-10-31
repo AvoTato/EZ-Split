@@ -1,12 +1,14 @@
 import { Ionicons } from '@expo/vector-icons';
 import { useLocalSearchParams, useRouter } from 'expo-router';
 import { useEffect, useState } from 'react';
-import { Pressable, ScrollView, StyleSheet, Text, TextInput, View } from 'react-native';
+import { ActivityIndicator, Pressable, ScrollView, StyleSheet, Text, TextInput, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
 import GroupCreatedModal from '../components/GroupCreatedModal';
 import ShareBillModal from '../components/ShareBillModal';
 import ReceiptDetectedCard from '../components/ReceiptDetectedCard';
+import SplitBreakdown from '../components/SplitBreakdown';
+import { explainSplit } from '../lib/api';
 import { addGroup, addSettlement, getGroup, updateSettlementSummary } from '../lib/groups';
 import { payBackStatus } from '../lib/debts';
 import { money } from '../lib/format';
@@ -20,8 +22,10 @@ import {
   type GroupSettlementSetup,
   type SettlementSummarySession,
 } from '../lib/receiptSession';
+import { describeSplit, splitFacts } from '../lib/splitExplanation';
 
 const PURPLE = '#9B87F0';
+const PURPLE_TINT = '#F1EDFD';
 const PILL_GRAY = '#EFEFEF';
 const MUTED = '#8A8A8A';
 const GREEN = '#2E7D32';
@@ -46,6 +50,8 @@ export default function SettlementSummaryScreen() {
   const [groupSetup, setGroupSetup] = useState<GroupSettlementSetup | null>(null);
   const [groupCreated, setGroupCreated] = useState(false);
   const [settlementSaved, setSettlementSaved] = useState(false);
+  const [expandedId, setExpandedId] = useState<string | null>(null);
+  const [explaining, setExplaining] = useState(false);
 
   useEffect(() => {
     const stored = getSettlementSummarySession();
@@ -63,6 +69,8 @@ export default function SettlementSummaryScreen() {
   const status = payBackStatus(session);
   const payer = status.payer;
   const billTotal = session.people.reduce((sum, person) => sum + person.amount, 0);
+  const receipt = isHistory ? historyReceipt : getParsedReceipt();
+  const canExplain = Boolean(receipt && session.people.some((person) => person.breakdown));
 
   const startEditing = (personId: string, currentName: string) => {
     setEditingPersonId(personId);
@@ -108,6 +116,25 @@ export default function SettlementSummaryScreen() {
       ? current.filter((id) => id !== personId)
       : [...current, personId];
     saveSessionChange({ ...session, settledIds: next.length > 0 ? next : undefined });
+  };
+
+  const handleExplain = async () => {
+    if (!receipt || explaining) return;
+    const facts = splitFacts(receipt, session.people, session.unassignedItems, money);
+    setExplaining(true);
+    let explanation: string;
+    try {
+      explanation = await explainSplit(facts);
+    } catch {
+      // Offline, not configured, or the AI's answer failed the number check.
+      explanation = describeSplit(facts);
+    } finally {
+      setExplaining(false);
+    }
+    const updatedSession = { ...session, explanation };
+    setSession(updatedSession);
+    setSettlementSummarySession(updatedSession);
+    if (groupId && settlementId) updateSettlementSummary(groupId, settlementId, { explanation });
   };
 
   const handleCreateGroup = () => {
@@ -220,8 +247,29 @@ export default function SettlementSummaryScreen() {
                       </>
                     )}
                   </View>
-                  <Text style={styles.rowTextBold}>{money(person.amount)}</Text>
+                  {person.breakdown ? (
+                    <Pressable
+                      accessibilityRole="button"
+                      accessibilityLabel={`${expandedId === person.id ? 'Hide' : 'Show'} how ${person.name}'s ${money(person.amount)} was worked out`}
+                      accessibilityState={{ expanded: expandedId === person.id }}
+                      onPress={() => setExpandedId(expandedId === person.id ? null : person.id)}
+                      hitSlop={8}
+                      style={({ pressed }) => [styles.amountToggle, pressed && styles.pressed]}
+                    >
+                      <Text style={styles.rowTextBold}>{money(person.amount)}</Text>
+                      <Ionicons
+                        name={expandedId === person.id ? 'chevron-up' : 'chevron-down'}
+                        size={14}
+                        color={MUTED}
+                      />
+                    </Pressable>
+                  ) : (
+                    <Text style={styles.rowTextBold}>{money(person.amount)}</Text>
+                  )}
                 </View>
+                {person.breakdown && expandedId === person.id && (
+                  <SplitBreakdown breakdown={person.breakdown} receipt={receipt} />
+                )}
                 {index < session.people.length - 1 && <View style={styles.divider} />}
               </View>
             ))}
@@ -289,16 +337,46 @@ export default function SettlementSummaryScreen() {
             <Text style={styles.noteText}>{session.note}</Text>
           </View>
 
+          {session.explanation ? (
+            <View style={styles.explainCard}>
+              <View style={styles.explainHeader}>
+                <Ionicons name="sparkles" size={16} color={PURPLE} />
+                <Text style={styles.explainTitle}>How this was split</Text>
+              </View>
+              <Text style={styles.explainText}>{session.explanation}</Text>
+            </View>
+          ) : (
+            canExplain && (
+              <Pressable
+                accessibilityRole="button"
+                accessibilityLabel="Explain how this bill was split"
+                disabled={explaining}
+                onPress={handleExplain}
+                style={({ pressed }) => [styles.explainButton, (pressed || explaining) && styles.pressed]}
+              >
+                {explaining ? (
+                  <ActivityIndicator size="small" color={PURPLE} />
+                ) : (
+                  <Ionicons name="sparkles" size={16} color={PURPLE} />
+                )}
+                <Text style={styles.explainButtonText}>Explain this split</Text>
+              </Pressable>
+            )
+          )}
+
           {session.unassignedItems && session.unassignedItems.length > 0 && (
             <View style={styles.unassignedCard}>
               <Text style={styles.unassignedTitle}>Unassigned items</Text>
               <Text style={styles.unassignedNote}>
-                These items were not assigned to anyone and are not included above.
+                These items were not assigned to anyone and are not included above
+                {session.unassignedItems.some((item) => item.withCharges !== undefined)
+                  ? ' (amounts include their share of discount, tax and service).'
+                  : '.'}
               </Text>
               {session.unassignedItems.map((item, i) => (
                 <View key={i} style={styles.unassignedRow}>
                   <Text style={styles.rowText}>{item.name}</Text>
-                  <Text style={styles.rowTextBold}>{money(item.price)}</Text>
+                  <Text style={styles.rowTextBold}>{money(item.withCharges ?? item.price)}</Text>
                 </View>
               ))}
             </View>
@@ -549,6 +627,48 @@ const styles = StyleSheet.create({
   },
   receiptReference: {
     marginTop: 16,
+  },
+  amountToggle: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 4,
+  },
+  explainButton: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 8,
+    marginTop: 16,
+    paddingVertical: 12,
+    borderRadius: 14,
+    backgroundColor: PURPLE_TINT,
+  },
+  explainButtonText: {
+    fontSize: 14,
+    fontWeight: '700',
+    color: PURPLE,
+  },
+  explainCard: {
+    marginTop: 16,
+    padding: 16,
+    borderRadius: 16,
+    backgroundColor: PURPLE_TINT,
+    gap: 8,
+  },
+  explainHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+  },
+  explainTitle: {
+    fontSize: 15,
+    fontWeight: '700',
+    color: '#000',
+  },
+  explainText: {
+    fontSize: 14,
+    lineHeight: 20,
+    color: '#000',
   },
   unassignedCard: {
     backgroundColor: PILL_GRAY,
