@@ -74,16 +74,40 @@ export function getWhoHadWhatSession() {
   return whoHadWhatSession;
 }
 
+// How one person's amount was reached. Every field is whole cents, and
+// itemsSubtotal - discount + tax + serviceCharge + rounding === amount.
+export type PersonBreakdown = {
+  // `shares` of `outOf` portions of the line, e.g. 1 of 2 for a shared dish.
+  items: { name: string; shares: number; outOf: number; cost: number }[];
+  itemsSubtotal: number;
+  // Share of the receipt's items, used to split discount, tax, service and rounding.
+  proportion: number;
+  discount: number;
+  tax: number;
+  serviceCharge: number;
+  rounding: number;
+};
+
 export type SettlementPerson = {
   id: string;
   name: string;
   amount: number;
+  // Missing for equal splits and for settlements saved before breakdowns existed.
+  breakdown?: PersonBreakdown;
+};
+
+export type UnassignedItem = {
+  name: string;
+  price: number;
+  // The price plus its share of discount, tax, service and rounding.
+  withCharges?: number;
 };
 
 export type SettlementSummarySession = {
   people: SettlementPerson[];
   note: string;
-  unassignedItems?: { name: string; price: number }[];
+  unassignedItems?: UnassignedItem[];
+  explanation?: string;
   pax?: number;
   paidBy?: string;
   settledIds?: string[];

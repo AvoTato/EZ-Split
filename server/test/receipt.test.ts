@@ -4,6 +4,7 @@ import { test } from 'node:test';
 import {
   MAX_IMAGE_BYTES,
   RECEIPT_PROMPT,
+  RECEIPT_SCHEMA,
   decodedSize,
   normalizeReceipt,
   parseRequestBody,
@@ -105,4 +106,29 @@ test('the prompt explains negative lines, the tax amount and the payable total',
   assert.ok(RECEIPT_PROMPT.includes('NEGATIVE price'));
   assert.ok(RECEIPT_PROMPT.includes('never a total that includes tax'));
   assert.ok(RECEIPT_PROMPT.includes('incl Tax'));
+});
+
+test('the schema has a rounding slot and the prompt pairs skewed totals in order', () => {
+  assert.ok(RECEIPT_SCHEMA.required.includes('rounding'));
+  assert.ok(RECEIPT_PROMPT.includes('Pair them in order'));
+});
+
+const skewed = {
+  items: [{ name: 'Braised Duck', price: 98.5, qty: 1 }],
+  subtotal: 98.5,
+  discount: null,
+  serviceCharge: 4.93,
+  tax: 5.91,
+  total: 0.01,
+};
+
+test('a total read as the rounding amount is rebuilt from the other amounts', () => {
+  assert.equal(normalizeReceipt({ ...skewed, rounding: 0.01 })?.total, 109.35);
+  assert.equal(normalizeReceipt({ ...skewed, rounding: null })?.total, 109.35);
+});
+
+test('a total that adds up, or is far off, is left alone', () => {
+  assert.equal(normalizeReceipt({ ...skewed, total: 109.35, rounding: 0.01 })?.total, 109.35);
+  assert.equal(normalizeReceipt({ ...skewed, total: 150 })?.total, 150);
+  assert.equal(normalizeReceipt({ ...skewed, serviceCharge: 98.5 })?.total, 0.01);
 });

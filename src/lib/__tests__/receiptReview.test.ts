@@ -10,6 +10,7 @@ import {
   itemsSum,
   netSubtotal,
   parseMoney,
+  repairTotal,
   unitPrice,
   type ReceiptIssue,
 } from '../receiptReview.ts';
@@ -201,4 +202,26 @@ test('a zero item price is still reported', () => {
     needsReview: false,
   };
   assert.ok(checkReceipt(receipt).some((issue) => issue.id === 'price-0'));
+});
+
+test('repairTotal rebuilds a total that was read as the rounding amount', () => {
+  const misread: ParsedReceipt = {
+    items: [{ name: 'Braised Duck', price: 98.5, qty: 1 }],
+    subtotal: 98.5,
+    discount: null,
+    serviceCharge: 4.93,
+    tax: 5.91,
+    total: 0.01,
+    needsReview: false,
+  };
+  assert.equal(repairTotal(misread).total, 109.35);
+});
+
+test('repairTotal leaves a reconciling total or a big mismatch alone', () => {
+  const ok = receipt();
+  assert.equal(repairTotal(ok), ok);
+  const off = { ...receipt(), total: 25 };
+  assert.equal(repairTotal(off), off);
+  const weirdFees = { ...receipt(), serviceCharge: 19, total: 0.01 };
+  assert.equal(repairTotal(weirdFees), weirdFees);
 });
