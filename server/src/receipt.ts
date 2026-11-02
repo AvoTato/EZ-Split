@@ -25,7 +25,7 @@ const NULLABLE_AMOUNT = { type: ['number', 'null'] };
 export const RECEIPT_SCHEMA = {
   type: 'object',
   additionalProperties: false,
-  required: ['items', 'subtotal', 'discount', 'serviceCharge', 'tax', 'total'],
+  required: ['items', 'subtotal', 'discount', 'serviceCharge', 'tax', 'rounding', 'total'],
   properties: {
     items: {
       type: 'array',
@@ -44,6 +44,7 @@ export const RECEIPT_SCHEMA = {
     discount: NULLABLE_AMOUNT,
     serviceCharge: NULLABLE_AMOUNT,
     tax: NULLABLE_AMOUNT,
+    rounding: NULLABLE_AMOUNT,
     total: NULLABLE_AMOUNT,
   },
 };
@@ -58,6 +59,9 @@ Rules:
 - subtotal: the printed subtotal. serviceCharge and tax: the printed amounts (service tax / SST / GST all count as tax unless a separate service charge line exists). Use the tax amount itself (for example "6% Service Tax 2.44"), never a total that includes tax.
 - total: the final amount payable (after rounding), for example "Total" or "Eat-In Total (incl Tax)". Never use a payment method line (card, cash) or a tax line as the total.
 - discount: the total discount as a POSITIVE amount, or null if the receipt has none.
+- rounding: the printed rounding adjustment (for example "Rounding 0.01" or "-0.02"), or null.
+- In the totals section the labels and amounts are two columns that may not line up horizontally when the photo is angled. Pair them in order, top to bottom: the first label with the first amount, the second with the second, and so on.
+- Check your reading: subtotal - discount + serviceCharge + tax + rounding should equal total, and total usually equals the payment amount (card, e-wallet, cash). If it doesn't add up, re-pair the totals section before answering.
 - Use null for anything not printed or not readable. Never guess or compute numbers that are not printed.
 - Item names in English as printed; drop Chinese text.`;
 
@@ -112,10 +116,11 @@ export function normalizeReceipt(raw: unknown): ParsedReceipt | null {
   const discount = amountOrNull(record.discount);
   const serviceCharge = amountOrNull(record.serviceCharge);
   const tax = amountOrNull(record.tax);
+  const rounding = amountOrNull(record.rounding);
   const total = amountOrNull(record.total);
-  if ([subtotal, discount, serviceCharge, tax, total].includes(undefined)) return null;
+  if ([subtotal, discount, serviceCharge, tax, rounding, total].includes(undefined)) return null;
 
-  return {
+  const receipt: ParsedReceipt = {
     items,
     subtotal: subtotal as number | null,
     discount: discount === null || discount === undefined ? null : Math.abs(discount),
@@ -124,4 +129,26 @@ export function normalizeReceipt(raw: unknown): ParsedReceipt | null {
     total: total as number | null,
     needsReview: false,
   };
+  return repairTotal(receipt, rounding ?? null);
+}
+
+// On an angled photo "Total" can get paired with the rounding amount (e.g. 0.01). When the
+// total is rounding-sized, doesn't add up, and the other amounts look sane, rebuild it.
+// Mirrors repairTotal in the app's receiptReview.ts.
+export function repairTotal(receipt: ParsedReceipt, rounding: number | null): ParsedReceipt {
+  const { total, subtotal, discount, tax, serviceCharge } = receipt;
+  if (total === null || Math.abs(total) > 0.1) return receipt;
+  const itemsSum = receipt.items.reduce((sum, item) => sum + item.price, 0);
+  const off = discount ?? 0;
+  const base =
+    subtotal === null
+      ? itemsSum - off
+      : off && Math.abs(itemsSum - off - subtotal) <= 0.01
+        ? subtotal
+        : subtotal - off;
+  const expected = base + (tax ?? 0) + (serviceCharge ?? 0);
+  if (expected <= 1 || base <= 0 || Math.abs(total - expected) <= 0.1) return receipt;
+  const sane = (fee: number | null) => fee === null || (fee >= 0 && fee <= base * 0.25);
+  if (!sane(tax) || !sane(serviceCharge)) return receipt;
+  return { ...receipt, total: round2(expected + (rounding ?? total)) };
 }

@@ -68,3 +68,16 @@ test('CORS headers only go to allowed origins', async () => {
   const denied = await preflight('https://evil.example');
   assert.equal(denied.headers.get('Access-Control-Allow-Origin'), null);
 });
+
+test('explain-split needs POST, a token and a valid body before reaching the model', async () => {
+  const url = 'https://api.test/explain-split';
+  assert.equal((await worker.fetch(new Request(url), makeEnv())).status, 405);
+  const noToken = new Request(url, { method: 'POST', body: '{}' });
+  assert.equal((await worker.fetch(noToken, makeEnv())).status, 401);
+  const badBody = new Request(url, {
+    method: 'POST',
+    headers: { Authorization: 'Bearer secret-token' },
+    body: JSON.stringify({ people: [] }),
+  });
+  assert.equal((await worker.fetch(badBody, makeEnv())).status, 400);
+});

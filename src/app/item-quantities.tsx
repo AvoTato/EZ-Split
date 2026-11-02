@@ -81,7 +81,7 @@ export default function ItemQuantitiesScreen() {
     const { settlementPeople, unassignedItems } = computeSettlement(receipt, people, assignments);
     setSettlementSummarySession({
       people: settlementPeople,
-      note: 'Amount based on items each person had.',
+      note: 'Shared items split by portion; discount, tax and service by what each person had.',
       unassignedItems: unassignedItems.length > 0 ? unassignedItems : undefined,
     });
     router.push('/settlement-summary');

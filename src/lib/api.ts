@@ -1,4 +1,5 @@
 import type { ParsedReceipt } from './parseReceipt';
+import type { SplitFacts } from './splitExplanation';
 
 export type ScanErrorCode =
   | 'not_configured'
@@ -27,7 +28,7 @@ export class ScanError extends Error {
 export type MediaType = 'image/jpeg' | 'image/png' | 'image/webp';
 
 const REQUEST_TIMEOUT_MS = 40_000;
-const REMINDER_TIMEOUT_MS = 20_000;
+const ASSISTANT_TIMEOUT_MS = 20_000;
 
 const SERVER_CODES: Record<string, ScanErrorCode> = {
   unauthorized: 'unauthorized',
@@ -144,7 +145,8 @@ export type ReminderDraftRequest = {
   draft: string;
 };
 
-export async function rewriteReminder(request: ReminderDraftRequest): Promise<string> {
+// POSTs JSON to an assistant endpoint and returns the non-empty string at `field`.
+async function postForText(path: string, payload: unknown, field: string, label: string): Promise<string> {
   const baseUrl = process.env.EXPO_PUBLIC_API_URL;
   const token = process.env.EXPO_PUBLIC_API_TOKEN;
   if (!baseUrl || !token) {
@@ -152,17 +154,17 @@ export async function rewriteReminder(request: ReminderDraftRequest): Promise<st
   }
 
   const controller = new AbortController();
-  const timer = setTimeout(() => controller.abort(), REMINDER_TIMEOUT_MS);
+  const timer = setTimeout(() => controller.abort(), ASSISTANT_TIMEOUT_MS);
   let response: Response;
   try {
-    response = await fetch(`${baseUrl.replace(/\/+$/, '')}/draft-reminder`, {
+    response = await fetch(`${baseUrl.replace(/\/+$/, '')}${path}`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
-      body: JSON.stringify(request),
+      body: JSON.stringify(payload),
       signal: controller.signal,
     });
   } catch (error) {
-    if (controller.signal.aborted) throw new ScanError('timeout', 'Rewrite timed out.');
+    if (controller.signal.aborted) throw new ScanError('timeout', `${label} timed out.`);
     throw new ScanError('network', error instanceof Error ? error.message : 'Network request failed.');
   } finally {
     clearTimeout(timer);
@@ -177,10 +179,18 @@ export async function rewriteReminder(request: ReminderDraftRequest): Promise<st
 
   if (!response.ok) throw errorFromResponse(response.status, body);
 
-  const message =
-    typeof body === 'object' && body !== null ? (body as Record<string, unknown>).message : undefined;
-  if (typeof message !== 'string' || message.trim().length === 0) {
-    throw new ScanError('bad_response', 'Rewrite returned an unexpected response.');
+  const value =
+    typeof body === 'object' && body !== null ? (body as Record<string, unknown>)[field] : undefined;
+  if (typeof value !== 'string' || value.trim().length === 0) {
+    throw new ScanError('bad_response', `${label} returned an unexpected response.`);
   }
-  return message.trim();
+  return value.trim();
+}
+
+export function rewriteReminder(request: ReminderDraftRequest): Promise<string> {
+  return postForText('/draft-reminder', request, 'message', 'Rewrite');
+}
+
+export function explainSplit(facts: SplitFacts): Promise<string> {
+  return postForText('/explain-split', facts, 'explanation', 'Explanation');
 }

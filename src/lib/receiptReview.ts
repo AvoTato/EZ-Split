@@ -82,6 +82,20 @@ export function expectedTotal(receipt: ParsedReceipt) {
   return round2(netSubtotal(receipt) + (receipt.tax ?? 0) + (receipt.serviceCharge ?? 0));
 }
 
+// On a skewed photo the totals column can drift a row below its labels, so "Total" gets
+// paired with the rounding amount (e.g. 0.01) instead of the real total. When the total
+// is rounding-sized and the other amounts look sane, rebuild it as expected + rounding.
+// Anything else is left for the total-mismatch check to raise.
+export function repairTotal(receipt: ParsedReceipt): ParsedReceipt {
+  if (receipt.total === null || Math.abs(receipt.total) > TOTAL_TOLERANCE) return receipt;
+  const expected = expectedTotal(receipt);
+  const base = netSubtotal(receipt);
+  if (expected <= 1 || base <= 0 || near(receipt.total, expected, TOTAL_TOLERANCE)) return receipt;
+  const sane = (fee: number | null) => fee === null || (fee >= 0 && fee <= base * 0.25);
+  if (!sane(receipt.tax) || !sane(receipt.serviceCharge)) return receipt;
+  return { ...receipt, total: round2(expected + receipt.total) };
+}
+
 export type ReceiptIssue = {
   id: string;
   severity: 'warning' | 'info';

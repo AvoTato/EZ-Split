@@ -10,7 +10,7 @@ import {
   parseReceiptText,
   type ParsedReceipt,
 } from '../lib/parseReceipt';
-import { checkReceipt } from '../lib/receiptReview';
+import { checkReceipt, repairTotal } from '../lib/receiptReview';
 import { setParsedReceipt, takePendingImage } from '../lib/receiptSession';
 
 const PURPLE = '#9B87F0';
@@ -40,8 +40,8 @@ export default function ReceiptProcessingScreen() {
     (async () => {
       let parsed: ParsedReceipt | null = null;
       try {
-        const scanned = await parseReceiptImage(imageBase64);
-        scanned.items = foldNegativeLines(scanned.items);
+        const raw = await parseReceiptImage(imageBase64);
+        const scanned = repairTotal({ ...raw, items: foldNegativeLines(raw.items) });
         parsed = {
           ...scanned,
           needsReview: checkReceipt(scanned).some((issue) => issue.severity === 'warning'),
@@ -57,10 +57,15 @@ export default function ReceiptProcessingScreen() {
           // is how we tell "Vision misread the receipt" apart from "the parser missed it."
           console.log('Raw OCR text:\n' + ocr.text);
           console.log('Rebuilt OCR rows:\n' + ocr.rowsText);
-          parsed = parseReceiptText(ocr.rowsText ?? ocr.text);
-          if (ocr.rowsText && parsed.items.length === 0 && parsed.total === null) {
-            parsed = parseReceiptText(ocr.text);
+          let fromText = parseReceiptText(ocr.rowsText ?? ocr.text);
+          if (ocr.rowsText && fromText.items.length === 0 && fromText.total === null) {
+            fromText = parseReceiptText(ocr.text);
           }
+          const repaired = repairTotal(fromText);
+          parsed =
+            repaired === fromText
+              ? fromText
+              : { ...repaired, needsReview: checkReceipt(repaired).some((issue) => issue.severity === 'warning') };
           console.log('Parsed receipt:', parsed);
           if (parsed.items.length === 0 && parsed.total === null) {
             // Nothing recognizable came out of the text — treat it the same as an OCR failure

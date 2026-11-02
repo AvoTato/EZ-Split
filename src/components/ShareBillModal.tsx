@@ -31,7 +31,11 @@ const WHATSAPP_GREEN = '#25D366';
 const MESSAGES_BLUE = '#007AFF';
 
 function buildShareText(session: SettlementSummarySession) {
-  const lines = session.people.map((person) => `${person.name}: ${money(person.amount)}`);
+  const lines = session.people.map((person) => {
+    const fees = person.breakdown ? person.breakdown.serviceCharge + person.breakdown.tax : 0;
+    const feeNote = fees > 0 ? ` (incl. ${money(fees)} tax & service)` : '';
+    return `${person.name}: ${money(person.amount)}${feeNote}`;
+  });
   const total = session.people.reduce((sum, person) => sum + person.amount, 0);
   return ['Settlement Summary', ...lines, `Total: ${money(total)}`].join('\n');
 }
