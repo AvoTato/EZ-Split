@@ -29,6 +29,7 @@ export default function WhoHadWhatScreen() {
   const [people, setPeople] = useState<Person[]>([]);
   const [assignments, setAssignments] = useState<ItemAssignment[]>([]);
   const [expandedPersonId, setExpandedPersonId] = useState<string | null>(null);
+  const [sharedItems, setSharedItems] = useState<Set<number>>(new Set());
   const nextPersonId = useRef(1);
 
   useEffect(() => {
@@ -42,6 +43,7 @@ export default function WhoHadWhatScreen() {
       setPeople((prev) => (prev.length === 0 ? groupMembers : prev));
       nextPersonId.current = groupMembers.length + 1;
     }
+    setSharedItems(new Set(stored.items.flatMap((item, i) => (item.qty > 1 ? [i] : []))));
     setReceipt(stored);
   }, [router]);
 
@@ -52,6 +54,32 @@ export default function WhoHadWhatScreen() {
 
   const getPersonShares = (personId: string, itemIndex: number) =>
     assignments.find((a) => a.personId === personId && a.itemIndex === itemIndex)?.shares ?? 0;
+
+  const getOwnerId = (itemIndex: number) =>
+    assignments.find((a) => a.itemIndex === itemIndex && a.shares > 0)?.personId ?? null;
+
+  const personLabel = (personId: string) => {
+    const index = people.findIndex((p) => p.id === personId);
+    return people[index]?.name.trim() || `Person ${index + 1}`;
+  };
+
+  const toggleShared = (itemIndex: number) => {
+    setSharedItems((prev) => {
+      const next = new Set(prev);
+      if (next.has(itemIndex)) {
+        next.delete(itemIndex);
+        const [keep] = assignments.filter((a) => a.itemIndex === itemIndex);
+        if (keep) {
+          setAssignments((all) =>
+            all.filter((a) => a.itemIndex !== itemIndex || a.personId === keep.personId),
+          );
+        }
+      } else {
+        next.add(itemIndex);
+      }
+      return next;
+    });
+  };
 
   const addPerson = () => {
     const taken = new Set(people.map((p) => p.id));
@@ -78,6 +106,8 @@ export default function WhoHadWhatScreen() {
     setExpandedPersonId((prev) => (prev === personId ? null : personId));
 
   const toggleItemForPerson = (personId: string, itemIndex: number) => {
+    const ownerId = getOwnerId(itemIndex);
+    if (ownerId && ownerId !== personId && !sharedItems.has(itemIndex)) return;
     setAssignments((prev) => {
       const exists = prev.some((a) => a.personId === personId && a.itemIndex === itemIndex);
       if (exists) {
@@ -142,20 +172,63 @@ export default function WhoHadWhatScreen() {
 
                 {isExpanded ? (
                   <View style={styles.checklist}>
+                    <Text style={styles.hintText}>
+                      Tap &quot;Multiple members&quot; on an item that more than one person shared.
+                      Otherwise it&apos;s crossed off for everyone else once picked.
+                    </Text>
                     {receipt.items.map((item, itemIndex) => {
                       const checked = getPersonShares(person.id, itemIndex) > 0;
+                      const shared = sharedItems.has(itemIndex);
+                      const ownerId = getOwnerId(itemIndex);
+                      const takenBy = ownerId && ownerId !== person.id && !shared ? ownerId : null;
+                      const canShare = !takenBy && item.price > 0;
                       return (
-                        <Pressable
-                          key={itemIndex}
-                          style={styles.checklistRow}
-                          onPress={() => toggleItemForPerson(person.id, itemIndex)}
-                        >
-                          <View style={[styles.checkbox, checked && styles.checkboxChecked]}>
-                            {checked && <Ionicons name="checkmark" size={16} color="#fff" />}
-                          </View>
-                          <Text style={styles.itemName}>{item.qty > 1 ? `${item.qty}× ${item.name}` : item.name}</Text>
-                          <Text style={styles.itemPrice}>{money(item.price)}</Text>
-                        </Pressable>
+                        <View key={itemIndex} style={styles.checklistRow}>
+                          <Pressable
+                            style={styles.checklistMain}
+                            disabled={!!takenBy}
+                            onPress={() => toggleItemForPerson(person.id, itemIndex)}
+                          >
+                            <View
+                              style={[
+                                styles.checkbox,
+                                checked && styles.checkboxChecked,
+                                takenBy && styles.checkboxDisabled,
+                              ]}
+                            >
+                              {checked && <Ionicons name="checkmark" size={16} color="#fff" />}
+                            </View>
+                            <View style={styles.itemTextGroup}>
+                              <Text style={[styles.itemName, takenBy && styles.itemCrossed]}>
+                                {item.qty > 1 ? `${item.qty}× ${item.name}` : item.name}
+                              </Text>
+                              {takenBy ? (
+                                <Text style={styles.takenByText}>
+                                  Taken by {personLabel(takenBy)}
+                                </Text>
+                              ) : null}
+                            </View>
+                            <Text style={[styles.itemPrice, takenBy && styles.itemCrossed]}>
+                              {money(item.price)}
+                            </Text>
+                          </Pressable>
+                          {canShare ? (
+                            <Pressable
+                              accessibilityRole="button"
+                              accessibilityLabel={`Multiple members for ${item.name}`}
+                              accessibilityState={{ selected: shared }}
+                              onPress={() => toggleShared(itemIndex)}
+                              hitSlop={6}
+                              style={[styles.shareChip, shared && styles.shareChipActive]}
+                            >
+                              <Text
+                                style={[styles.shareChipText, shared && styles.shareChipTextActive]}
+                              >
+                                Multiple members
+                              </Text>
+                            </Pressable>
+                          ) : null}
+                        </View>
                       );
                     })}
                   </View>
@@ -265,11 +338,55 @@ const styles = StyleSheet.create({
     marginTop: 12,
     gap: 4,
   },
+  hintText: {
+    fontSize: 12,
+    color: MUTED,
+    marginBottom: 4,
+  },
   checklistRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+  },
+  checklistMain: {
+    flex: 1,
     flexDirection: 'row',
     alignItems: 'center',
     gap: 12,
     paddingVertical: 8,
+  },
+  itemTextGroup: {
+    flex: 1,
+  },
+  itemCrossed: {
+    textDecorationLine: 'line-through',
+    color: MUTED,
+  },
+  takenByText: {
+    fontSize: 12,
+    color: MUTED,
+  },
+  checkboxDisabled: {
+    borderColor: '#C8C8C8',
+    backgroundColor: PILL_GRAY,
+  },
+  shareChip: {
+    flexShrink: 0,
+    paddingVertical: 4,
+    paddingHorizontal: 10,
+    borderRadius: 12,
+    backgroundColor: PILL_GRAY,
+  },
+  shareChipActive: {
+    backgroundColor: PURPLE,
+  },
+  shareChipText: {
+    fontSize: 12,
+    fontWeight: '600',
+    color: MUTED,
+  },
+  shareChipTextActive: {
+    color: '#fff',
   },
   checkbox: {
     width: 22,
@@ -284,7 +401,6 @@ const styles = StyleSheet.create({
     backgroundColor: GREEN,
   },
   itemName: {
-    flex: 1,
     fontSize: 15,
     color: '#000',
   },
