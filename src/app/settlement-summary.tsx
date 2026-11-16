@@ -9,9 +9,10 @@ import ShareBillModal from '../components/ShareBillModal';
 import ReceiptDetectedCard from '../components/ReceiptDetectedCard';
 import SplitBreakdown from '../components/SplitBreakdown';
 import { explainSplit } from '../lib/api';
+import { fetchSharesPaid, isCloudConfigured, setSharePaid, updateShare } from '../lib/cloud';
 import { addGroup, addSettlement, getGroup, updateSettlementSummary } from '../lib/groups';
 import { payBackStatus } from '../lib/debts';
-import { money } from '../lib/format';
+import { CURRENCY, money } from '../lib/format';
 import { goBack } from '../lib/navigation';
 import {
   getGroupSettlementSetup,
@@ -22,6 +23,7 @@ import {
   type GroupSettlementSetup,
   type SettlementSummarySession,
 } from '../lib/receiptSession';
+import { billSnapshot, mergePaid } from '../lib/shareBill';
 import { describeSplit, splitFacts } from '../lib/splitExplanation';
 
 const PURPLE = '#9B87F0';
@@ -63,6 +65,29 @@ export default function SettlementSummaryScreen() {
     setSession(stored);
   }, [router]);
 
+  // Pull in "I've paid" taps friends made on this bill's share link.
+  const shareId = session?.shareId;
+  useEffect(() => {
+    if (!shareId || !isCloudConfigured()) return;
+    let cancelled = false;
+    fetchSharesPaid([shareId])
+      .then((remote) => {
+        const paidIds = remote[shareId];
+        const latest = getSettlementSummarySession();
+        if (cancelled || !paidIds || !latest || latest.shareId !== shareId) return;
+        const merged = mergePaid(latest, paidIds);
+        if ((merged?.length ?? 0) === (latest.settledIds?.length ?? 0)) return;
+        const updated = { ...latest, settledIds: merged };
+        setSession(updated);
+        setSettlementSummarySession(updated);
+        if (groupId && settlementId) updateSettlementSummary(groupId, settlementId, { settledIds: merged });
+      })
+      .catch(() => {});
+    return () => {
+      cancelled = true;
+    };
+  }, [shareId, groupId, settlementId]);
+
   if (!session) return null;
 
   const billTitle = historyName ?? groupSetup?.settlementName;
@@ -87,8 +112,23 @@ export default function SettlementSummaryScreen() {
       const updatedSession = { ...session, people: updatedPeople };
       setSession(updatedSession);
       setSettlementSummarySession(updatedSession);
+      pushShareBill(updatedSession);
     }
     setEditingPersonId(null);
+  };
+
+  // Keeps the share link's copy of the bill in step. Best effort: the app's copy is the real one.
+  const pushShareBill = (updated: SettlementSummarySession) => {
+    if (updated.shareId) updateShare(updated.shareId, billSnapshot(updated, billTitle, CURRENCY)).catch(() => {});
+  };
+
+  const handleShareId = (newShareId: string) => {
+    // The link was made in the background, so build on the latest session, not this render's.
+    const latest = getSettlementSummarySession() ?? session;
+    const updated = { ...latest, shareId: newShareId };
+    setSession(updated);
+    setSettlementSummarySession(updated);
+    if (groupId && settlementId) updateSettlementSummary(groupId, settlementId, { shareId: newShareId });
   };
 
   const saveSessionChange = (updatedSession: SettlementSummarySession) => {
@@ -103,19 +143,22 @@ export default function SettlementSummaryScreen() {
   };
 
   const selectPayer = (personId: string) => {
-    saveSessionChange({
+    const updated = {
       ...session,
       paidBy: session.paidBy === personId ? undefined : personId,
       settledIds: undefined,
-    });
+    };
+    saveSessionChange(updated);
+    // The server clears paid marks too when the payer changes.
+    pushShareBill(updated);
   };
 
   const togglePaidBack = (personId: string) => {
     const current = session.settledIds ?? [];
-    const next = current.includes(personId)
-      ? current.filter((id) => id !== personId)
-      : [...current, personId];
+    const wasPaid = current.includes(personId);
+    const next = wasPaid ? current.filter((id) => id !== personId) : [...current, personId];
     saveSessionChange({ ...session, settledIds: next.length > 0 ? next : undefined });
+    if (session.shareId) setSharePaid(session.shareId, personId, !wasPaid).catch(() => {});
   };
 
   const handleExplain = async () => {
@@ -430,6 +473,7 @@ export default function SettlementSummaryScreen() {
         onClose={() => setShareModalVisible(false)}
         session={session}
         title={billTitle}
+        onShareId={handleShareId}
       />
     </SafeAreaView>
   );

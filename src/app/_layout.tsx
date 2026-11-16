@@ -27,6 +27,7 @@ export default function RootLayout() {
       <Stack.Screen name="group-balances" />
       <Stack.Screen name="create-new-group" />
       <Stack.Screen name="group-members" />
+      <Stack.Screen name="backup" />
     </Stack>
   );
 }

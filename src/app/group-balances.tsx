@@ -13,7 +13,8 @@ import {
   type BillSection,
 } from '../lib/debts';
 import { money } from '../lib/format';
-import { getGroup, migrateLegacyPayments, updateSettlementSummary } from '../lib/groups';
+import { setSharePaid } from '../lib/cloud';
+import { getGroup, migrateLegacyPayments, pullSharedPaid, updateSettlementSummary } from '../lib/groups';
 import { goBack } from '../lib/navigation';
 import { setGroupSettlementSetup, setSettlementSummarySession } from '../lib/receiptSession';
 
@@ -62,6 +63,22 @@ export default function GroupBalancesScreen() {
 
   useFocusEffect(load);
 
+  // Then pull in "I've paid" taps from share links, and redraw if any arrived.
+  useFocusEffect(
+    useCallback(() => {
+      if (!groupId) return;
+      let active = true;
+      pullSharedPaid(groupId)
+        .then((changed) => {
+          if (active && changed) load();
+        })
+        .catch(() => {});
+      return () => {
+        active = false;
+      };
+    }, [groupId, load]),
+  );
+
   useEffect(
     () => () => {
       if (toastTimer.current) clearTimeout(toastTimer.current);
@@ -79,6 +96,7 @@ export default function GroupBalancesScreen() {
         : [...current, friend.id]
       : current.filter((id) => id !== friend.id);
     updateSettlementSummary(groupId, section.id, { settledIds: next.length > 0 ? next : undefined });
+    if (bill?.summary.shareId) setSharePaid(bill.summary.shareId, friend.id, paidBack).catch(() => {});
     load();
   };
 

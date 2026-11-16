@@ -14,7 +14,7 @@ import {
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
-import { getGroups, setGroups as storeGroups, type Group } from '../../lib/groups';
+import { getGroups, removeGroup as deleteGroup, setGroups as storeGroups, type Group } from '../../lib/groups';
 import { setGroupSettlementSetup } from '../../lib/receiptSession';
 
 export default function GroupsScreen() {
@@ -57,7 +57,7 @@ export default function GroupsScreen() {
   };
 
   const removeGroup = (groupId: string) => {
-    storeGroups(getGroups().filter((group) => group.id !== groupId));
+    deleteGroup(groupId);
     setGroups(getGroups());
   };
 
@@ -89,6 +89,14 @@ export default function GroupsScreen() {
           <Text style={styles.headerTitle} numberOfLines={1} adjustsFontSizeToFit>
             Manage Groups
           </Text>
+          <Pressable
+            accessibilityRole="button"
+            accessibilityLabel="Backup and restore"
+            onPress={() => router.push('/backup')}
+            style={({ pressed }) => [styles.editButton, pressed && styles.pressed]}
+          >
+            <Ionicons name="cloud-upload-outline" size={26} color="#9855FF" />
+          </Pressable>
           <Pressable
             accessibilityRole="button"
             accessibilityLabel={isEditing ? 'Finish editing groups' : 'Edit groups'}
