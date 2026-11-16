@@ -3,6 +3,7 @@ import { test } from 'node:test';
 
 import worker, { type Env } from '../src/index.ts';
 import { buildReminderPrompt, cleanReminder, parseReminderBody } from '../src/reminder.ts';
+import { fakeD1 } from './fakeD1.ts';
 
 const valid = {
   tone: 'funny',
@@ -17,6 +18,8 @@ const makeEnv = (overrides: Partial<Env> = {}): Env => ({
   ANTHROPIC_API_KEY: 'test-key',
   APP_TOKEN: 'secret-token',
   RATE_LIMITER: { limit: async () => ({ success: true }) },
+  DATA_LIMITER: { limit: async () => ({ success: true }) },
+  DB: fakeD1(),
   ...overrides,
 });
 

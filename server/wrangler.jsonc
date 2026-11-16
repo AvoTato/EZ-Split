@@ -8,12 +8,31 @@
   },
   "ratelimits": [
     {
+      // AI calls, device registration and the public "I've paid" button.
       "name": "RATE_LIMITER",
       "namespace_id": "48213",
       "simple": {
         "limit": 10,
         "period": 60
       }
+    },
+    {
+      // Backups and shared-bill traffic from the app, and viewing the bill page.
+      "name": "DATA_LIMITER",
+      "namespace_id": "48214",
+      "simple": {
+        "limit": 60,
+        "period": 60
+      }
+    }
+  ],
+  // Create with `npx wrangler d1 create ez-split`, then paste the id it prints here.
+  "d1_databases": [
+    {
+      "binding": "DB",
+      "database_name": "ez-split",
+      "database_id": "1b65c9dd-7dfe-4a19-b955-5597efd50268",
+      "migrations_dir": "migrations"
     }
   ]
 }
