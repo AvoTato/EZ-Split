@@ -2,6 +2,7 @@ import assert from 'node:assert/strict';
 import { test } from 'node:test';
 
 import worker, { safeEqual, type Env } from '../src/index.ts';
+import { fakeD1 } from './fakeD1.ts';
 
 const TINY = Buffer.from('hello receipt').toString('base64');
 
@@ -10,6 +11,8 @@ const makeEnv = (overrides: Partial<Env> = {}): Env => ({
   APP_TOKEN: 'secret-token',
   ALLOWED_ORIGINS: 'http://localhost:8081',
   RATE_LIMITER: { limit: async () => ({ success: true }) },
+  DATA_LIMITER: { limit: async () => ({ success: true }) },
+  DB: fakeD1(),
   ...overrides,
 });
 

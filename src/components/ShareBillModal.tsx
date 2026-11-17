@@ -1,6 +1,6 @@
 import { Ionicons } from '@expo/vector-icons';
 import * as Clipboard from 'expo-clipboard';
-import { useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import {
   ActivityIndicator,
   Alert,
@@ -19,9 +19,11 @@ import {
 import QRCode from 'react-native-qrcode-svg';
 
 import { rewriteReminder } from '../lib/api';
-import { money } from '../lib/format';
+import { createShare, isCloudConfigured, shareUrl } from '../lib/cloud';
+import { CURRENCY, money } from '../lib/format';
 import type { SettlementSummarySession } from '../lib/receiptSession';
 import { TONES, TONE_LABELS, buildReminder, type Tone } from '../lib/reminders';
+import { billSnapshot, withShareLink } from '../lib/shareBill';
 
 const PURPLE = '#9B87F0';
 const PURPLE_TINT = '#F1EDFD';
@@ -29,6 +31,7 @@ const PILL_GRAY = '#EFEFEF';
 const MUTED = '#8A8A8A';
 const WHATSAPP_GREEN = '#25D366';
 const MESSAGES_BLUE = '#007AFF';
+const COPIED_GREEN = '#2E7D32';
 
 function buildShareText(session: SettlementSummarySession) {
   const lines = session.people.map((person) => {
@@ -46,19 +49,57 @@ type Props = {
   session: SettlementSummarySession;
   title?: string;
   remindOnly?: boolean;
+  // When given, the bill gets a share link the first time the share view opens,
+  // and the new link's id is handed back so the caller can save it with the bill.
+  onShareId?: (shareId: string) => void;
 };
 
 type Mode = 'share' | 'remind';
 
 const AI_AVAILABLE = Boolean(process.env.EXPO_PUBLIC_API_URL && process.env.EXPO_PUBLIC_API_TOKEN);
 
-export default function ShareBillModal({ visible, onClose, session, title, remindOnly = false }: Props) {
+export default function ShareBillModal({ visible, onClose, session, title, remindOnly = false, onShareId }: Props) {
   const [chosenMode, setMode] = useState<Mode>('share');
   const mode: Mode = remindOnly ? 'remind' : chosenMode;
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [tone, setTone] = useState<Tone>('friendly');
   const [edited, setEdited] = useState<string | null>(null);
   const [rewriting, setRewriting] = useState(false);
+  const [creatingLink, setCreatingLink] = useState(false);
+  // After a failed attempt, share as plain text instead of retrying on every render.
+  const [linkFailed, setLinkFailed] = useState(false);
+  const creatingRef = useRef(false);
+  const [copyState, setCopyState] = useState<'idle' | 'copied' | 'failed'>('idle');
+  const copyTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  useEffect(
+    () => () => {
+      if (copyTimer.current) clearTimeout(copyTimer.current);
+    },
+    [],
+  );
+
+  const link = session.shareId ? shareUrl(session.shareId) : null;
+  const wantsLink = visible && mode === 'share' && Boolean(onShareId) && isCloudConfigured();
+
+  useEffect(() => {
+    if (!wantsLink || session.shareId || linkFailed || creatingRef.current || !onShareId) return;
+    creatingRef.current = true;
+    setCreatingLink(true);
+    createShare(billSnapshot(session, title, CURRENCY), session.settledIds ?? [])
+      .then(onShareId)
+      .catch(() => setLinkFailed(true))
+      .finally(() => {
+        creatingRef.current = false;
+        setCreatingLink(false);
+      });
+  }, [wantsLink, session, title, linkFailed, onShareId]);
+
+  // A failed link gets another try the next time the sheet opens.
+  const close = () => {
+    setLinkFailed(false);
+    onClose();
+  };
 
   const payer = session.people.find((person) => person.id === session.paidBy);
   const candidates = session.people.filter(
@@ -76,7 +117,7 @@ export default function ShareBillModal({ visible, onClose, session, title, remin
     : '';
   const reminderText = edited ?? template;
 
-  const shareText = mode === 'remind' ? reminderText : buildShareText(session);
+  const shareText = withShareLink(mode === 'remind' ? reminderText : buildShareText(session), link);
   const total = session.people.reduce((sum, person) => sum + person.amount, 0);
 
   const pickPerson = (personId: string) => {
@@ -133,14 +174,25 @@ export default function ShareBillModal({ visible, onClose, session, title, remin
     }
   };
 
+  // Feedback shows on the button itself: Alert.alert does nothing on web.
+  const showCopyState = (state: 'copied' | 'failed') => {
+    if (copyTimer.current) clearTimeout(copyTimer.current);
+    setCopyState(state);
+    copyTimer.current = setTimeout(() => setCopyState('idle'), 2000);
+  };
+
   const handleCopyLink = async () => {
     try {
-      await Clipboard.setStringAsync(shareText);
-      Alert.alert('Copied', 'Share text copied to clipboard.');
+      // On web this resolves false when the browser refuses; native always resolves true.
+      const copied = await Clipboard.setStringAsync(mode === 'share' && link ? link : shareText);
+      showCopyState(copied ? 'copied' : 'failed');
     } catch {
-      Alert.alert('Could not share', 'Please try another option.');
+      showCopyState('failed');
     }
   };
+
+  const copyLabel =
+    copyState === 'copied' ? 'Copied!' : copyState === 'failed' ? "Couldn't copy" : mode === 'share' && link ? 'Copy Link' : 'Copy Text';
 
   const handleMore = async () => {
     try {
@@ -158,11 +210,18 @@ export default function ShareBillModal({ visible, onClose, session, title, remin
         </View>
         <Text style={styles.channelLabel}>WhatsApp</Text>
       </Pressable>
-      <Pressable style={styles.channel} onPress={handleCopyLink}>
-        <View style={[styles.channelCircle, { backgroundColor: PURPLE }]}>
-          <Ionicons name="link" size={22} color="#fff" />
+      <Pressable
+        style={styles.channel}
+        onPress={handleCopyLink}
+        accessibilityRole="button"
+        accessibilityLabel={copyLabel}
+      >
+        <View style={[styles.channelCircle, { backgroundColor: copyState === 'copied' ? COPIED_GREEN : PURPLE }]}>
+          <Ionicons name={copyState === 'copied' ? 'checkmark' : 'link'} size={22} color="#fff" />
         </View>
-        <Text style={styles.channelLabel}>Copy Link</Text>
+        <Text style={styles.channelLabel} accessibilityLiveRegion="polite">
+          {copyLabel}
+        </Text>
       </Pressable>
       <Pressable style={styles.channel} onPress={handleMessages}>
         <View style={[styles.channelCircle, { backgroundColor: MESSAGES_BLUE }]}>
@@ -180,12 +239,12 @@ export default function ShareBillModal({ visible, onClose, session, title, remin
   );
 
   return (
-    <Modal visible={visible} transparent animationType="fade" onRequestClose={onClose}>
+    <Modal visible={visible} transparent animationType="fade" onRequestClose={close}>
       <KeyboardAvoidingView
         style={styles.flex}
         behavior={Platform.OS === 'ios' ? 'padding' : undefined}
       >
-        <Pressable style={styles.backdrop} onPress={onClose}>
+        <Pressable style={styles.backdrop} onPress={close}>
           <Pressable style={styles.sheet} onPress={() => {}}>
             <ScrollView
               keyboardShouldPersistTaps="handled"
@@ -219,11 +278,20 @@ export default function ShareBillModal({ visible, onClose, session, title, remin
                   </Text>
 
                   <View style={styles.qrBox}>
-                    <QRCode value={shareText} size={160} backgroundColor={PURPLE_TINT} />
+                    {creatingLink ? (
+                      <View style={styles.qrPlaceholder}>
+                        <ActivityIndicator color={PURPLE} />
+                        <Text style={styles.qrPlaceholderText}>Creating link…</Text>
+                      </View>
+                    ) : (
+                      <QRCode value={link ?? shareText} size={160} backgroundColor={PURPLE_TINT} />
+                    )}
                   </View>
                   <View style={styles.scanCaption}>
                     <Ionicons name="qr-code-outline" size={14} color={PURPLE} />
-                    <Text style={styles.scanCaptionText}>Scan QR Code to Pay</Text>
+                    <Text style={styles.scanCaptionText}>
+                      {link ? 'Scan to see the bill and mark yourself paid' : 'Scan QR Code to Pay'}
+                    </Text>
                   </View>
 
                   <View style={styles.orRow}>
@@ -314,7 +382,7 @@ export default function ShareBillModal({ visible, onClose, session, title, remin
                 <Text style={styles.emptyText}>Nobody still owes anything, so there is no one to remind.</Text>
               )}
 
-              <Pressable style={styles.cancelButton} onPress={onClose}>
+              <Pressable style={styles.cancelButton} onPress={close}>
                 <Text style={styles.cancelButtonText}>Cancel</Text>
               </Pressable>
             </ScrollView>
@@ -455,6 +523,17 @@ const styles = StyleSheet.create({
     padding: 16,
     alignItems: 'center',
     justifyContent: 'center',
+  },
+  qrPlaceholder: {
+    width: 160,
+    height: 160,
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 10,
+  },
+  qrPlaceholderText: {
+    fontSize: 13,
+    color: MUTED,
   },
   scanCaption: {
     flexDirection: 'row',

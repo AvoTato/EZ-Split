@@ -111,6 +111,8 @@ export type SettlementSummarySession = {
   pax?: number;
   paidBy?: string;
   settledIds?: string[];
+  // Set once the bill has a share link (see src/lib/cloud.ts).
+  shareId?: string;
 };
 
 let settlementSummarySession: SettlementSummarySession | null = null;
