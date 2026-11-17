@@ -314,7 +314,8 @@ export function renderSharePage(bill: Bill, paidIds: string[], flash?: string) {
 
   const intro = payer
     ? `<p class="muted">${escapeHtml(payer.name)} paid. Find your name and tap &ldquo;I&#39;ve paid&rdquo; once you&#39;ve paid them back.</p>`
-    : '<p class="muted">Here&#39;s what everyone owes.</p>';
+    : '<p class="muted">Here&#39;s what everyone owes.</p>' +
+      '<p class="notice">The &ldquo;I&#39;ve paid&rdquo; buttons appear once the person who shared this picks who paid the bill in EZ-Split.</p>';
 
   return `<!doctype html>
 <html lang="en">
@@ -328,6 +329,7 @@ export function renderSharePage(bill: Bill, paidIds: string[], flash?: string) {
   main { max-width: 480px; margin: 0 auto; padding: 32px 16px; }
   h1 { font-size: 26px; margin: 0 0 4px; }
   .muted { color: #6B6575; margin: 0 0 20px; }
+  .notice { background: #F1EDFD; color: #4B3A9E; padding: 12px 14px; border-radius: 12px; margin: -8px 0 20px; font-size: 15px; }
   .flash { background: #E6F4EA; color: #1E5E2A; padding: 12px 14px; border-radius: 12px; margin-bottom: 16px; font-weight: 600; }
   ul { list-style: none; margin: 0; padding: 0; background: #fff; border-radius: 18px; box-shadow: 0 2px 8px rgba(0,0,0,.06); }
   li { display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 14px 16px; border-bottom: 1px solid #EEE; }

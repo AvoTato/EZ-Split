@@ -198,6 +198,23 @@ test('the public page escapes names and lets a friend mark themselves paid', asy
   assert.deepEqual(await paidIds(env, key, id), ['p2']);
 });
 
+test('a bill with no payer explains why there are no "I\'ve paid" buttons', async () => {
+  const env = makeEnv();
+  const key = await register(env);
+  const { payerId: _payer, ...noPayer } = BILL;
+  const id = await share(env, key, { bill: noPayer });
+
+  const html = await (await call(env, 'GET', `/s/${id}`)).text();
+  assert.equal(html.match(/name="personId"/g), null);
+  assert.match(html, /appear once the person who shared this picks who paid/);
+
+  // Once the owner picks a payer, the buttons show and the notice goes.
+  assert.equal((await call(env, 'PUT', `/shares/${id}`, { key, body: { bill: BILL } })).status, 200);
+  const after = await (await call(env, 'GET', `/s/${id}`)).text();
+  assert.equal(after.match(/name="personId"/g)?.length, 2);
+  assert.doesNotMatch(after, /appear once the person who shared this/);
+});
+
 test('deleted and unknown shares show a not-found page', async () => {
   const env = makeEnv();
   const key = await register(env);

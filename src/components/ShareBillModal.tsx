@@ -31,6 +31,7 @@ const PILL_GRAY = '#EFEFEF';
 const MUTED = '#8A8A8A';
 const WHATSAPP_GREEN = '#25D366';
 const MESSAGES_BLUE = '#007AFF';
+const COPIED_GREEN = '#2E7D32';
 
 function buildShareText(session: SettlementSummarySession) {
   const lines = session.people.map((person) => {
@@ -68,6 +69,15 @@ export default function ShareBillModal({ visible, onClose, session, title, remin
   // After a failed attempt, share as plain text instead of retrying on every render.
   const [linkFailed, setLinkFailed] = useState(false);
   const creatingRef = useRef(false);
+  const [copyState, setCopyState] = useState<'idle' | 'copied' | 'failed'>('idle');
+  const copyTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  useEffect(
+    () => () => {
+      if (copyTimer.current) clearTimeout(copyTimer.current);
+    },
+    [],
+  );
 
   const link = session.shareId ? shareUrl(session.shareId) : null;
   const wantsLink = visible && mode === 'share' && Boolean(onShareId) && isCloudConfigured();
@@ -164,14 +174,25 @@ export default function ShareBillModal({ visible, onClose, session, title, remin
     }
   };
 
+  // Feedback shows on the button itself: Alert.alert does nothing on web.
+  const showCopyState = (state: 'copied' | 'failed') => {
+    if (copyTimer.current) clearTimeout(copyTimer.current);
+    setCopyState(state);
+    copyTimer.current = setTimeout(() => setCopyState('idle'), 2000);
+  };
+
   const handleCopyLink = async () => {
     try {
-      await Clipboard.setStringAsync(mode === 'share' && link ? link : shareText);
-      Alert.alert('Copied', mode === 'share' && link ? 'Link copied to clipboard.' : 'Share text copied to clipboard.');
+      // On web this resolves false when the browser refuses; native always resolves true.
+      const copied = await Clipboard.setStringAsync(mode === 'share' && link ? link : shareText);
+      showCopyState(copied ? 'copied' : 'failed');
     } catch {
-      Alert.alert('Could not share', 'Please try another option.');
+      showCopyState('failed');
     }
   };
+
+  const copyLabel =
+    copyState === 'copied' ? 'Copied!' : copyState === 'failed' ? "Couldn't copy" : mode === 'share' && link ? 'Copy Link' : 'Copy Text';
 
   const handleMore = async () => {
     try {
@@ -189,11 +210,18 @@ export default function ShareBillModal({ visible, onClose, session, title, remin
         </View>
         <Text style={styles.channelLabel}>WhatsApp</Text>
       </Pressable>
-      <Pressable style={styles.channel} onPress={handleCopyLink}>
-        <View style={[styles.channelCircle, { backgroundColor: PURPLE }]}>
-          <Ionicons name="link" size={22} color="#fff" />
+      <Pressable
+        style={styles.channel}
+        onPress={handleCopyLink}
+        accessibilityRole="button"
+        accessibilityLabel={copyLabel}
+      >
+        <View style={[styles.channelCircle, { backgroundColor: copyState === 'copied' ? COPIED_GREEN : PURPLE }]}>
+          <Ionicons name={copyState === 'copied' ? 'checkmark' : 'link'} size={22} color="#fff" />
         </View>
-        <Text style={styles.channelLabel}>Copy Link</Text>
+        <Text style={styles.channelLabel} accessibilityLiveRegion="polite">
+          {copyLabel}
+        </Text>
       </Pressable>
       <Pressable style={styles.channel} onPress={handleMessages}>
         <View style={[styles.channelCircle, { backgroundColor: MESSAGES_BLUE }]}>
