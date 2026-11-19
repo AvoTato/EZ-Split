@@ -162,6 +162,15 @@ function textOf(response: Anthropic.Message) {
     .join('');
 }
 
+// Records why an Anthropic call failed, visible in `wrangler tail`. Never logs the key or the request.
+function logUpstreamError(route: string, error: unknown) {
+  if (error instanceof Anthropic.APIError) {
+    console.error(`${route}: Anthropic API error ${error.status ?? 'no status'}: ${error.message}`);
+  } else {
+    console.error(`${route}: Anthropic call failed: ${error instanceof Error ? error.message : String(error)}`);
+  }
+}
+
 async function parseReceipt(request: Request, env: Env, cors: Record<string, string>) {
   const body = await readAuthorizedJson(request, env, cors, 'parse-receipt', MAX_BODY_BYTES, 'Image is too large.');
   if (body instanceof Response) return body;
@@ -186,6 +195,7 @@ async function parseReceipt(request: Request, env: Env, cors: Record<string, str
       ],
     });
   } catch (error) {
+    logUpstreamError('parse-receipt', error);
     if (error instanceof Anthropic.APIError) {
       if (error.status === 429 || error.status === 529) {
         return fail(503, 'busy', 'The scanner is busy. Try again shortly.', { 'Retry-After': '10', ...cors });
@@ -231,6 +241,7 @@ async function draftReminder(request: Request, env: Env, cors: Record<string, st
       messages: [{ role: 'user', content: buildReminderPrompt(parsed.value) }],
     });
   } catch (error) {
+    logUpstreamError('draft-reminder', error);
     if (error instanceof Anthropic.APIError && (error.status === 429 || error.status === 529)) {
       return fail(503, 'busy', 'The assistant is busy. Try again shortly.', { 'Retry-After': '10', ...cors });
     }
@@ -269,6 +280,7 @@ async function explainSplit(request: Request, env: Env, cors: Record<string, str
       messages: [{ role: 'user', content: buildExplainPrompt(parsed.value) }],
     });
   } catch (error) {
+    logUpstreamError('explain-split', error);
     if (error instanceof Anthropic.APIError && (error.status === 429 || error.status === 529)) {
       return fail(503, 'busy', 'The assistant is busy. Try again shortly.', { 'Retry-After': '10', ...cors });
     }
