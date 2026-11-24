@@ -4,6 +4,7 @@ import { useEffect, useState } from 'react';
 import { ActivityIndicator, Pressable, ScrollView, StyleSheet, Text, TextInput, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
+import EqualSplitSummary from '../components/EqualSplitSummary';
 import GroupCreatedModal from '../components/GroupCreatedModal';
 import ShareBillModal from '../components/ShareBillModal';
 import ReceiptDetectedCard from '../components/ReceiptDetectedCard';
@@ -195,6 +196,21 @@ export default function SettlementSummaryScreen() {
     setGroupCreated(true);
   };
 
+  const handleCreateGroupFromPeople = (name: string) => {
+    if (groupCreated) return;
+    const group = addGroup({
+      name,
+      members: session.people.map(({ id, name: memberName }) => ({ id, name: memberName })),
+    });
+    addSettlement(group.id, {
+      name: 'Instant split',
+      createdAt: Date.now(),
+      summary: session,
+      receipt: getParsedReceipt(),
+    });
+    setGroupCreated(true);
+  };
+
   const handleSaveSettlement = () => {
     if (!groupSetup?.groupId || settlementSaved) return;
     const savedGroupId = groupSetup.groupId;
@@ -213,6 +229,43 @@ export default function SettlementSummaryScreen() {
     setGroupSettlementSetup(null);
     router.replace('/(tabs)/groups');
   };
+
+  if (!isHistory) {
+    const handleEqualSave = () => {
+      if (groupSetup?.groupId) handleSaveSettlement();
+      else if (groupSetup) handleCreateGroup();
+      else {
+        setGroupSettlementSetup(null);
+        router.replace('/(tabs)');
+      }
+    };
+    return (
+      <>
+        <EqualSplitSummary
+          session={session}
+          title={billTitle ?? 'Instant split'}
+          isGroup={Boolean(groupSetup)}
+          onBack={() => goBack(router)}
+          onSelectPayer={selectPayer}
+          onTogglePaid={togglePaidBack}
+          onShare={() => setShareModalVisible(true)}
+          onSave={handleEqualSave}
+          saveDisabled={groupSetup?.groupId ? settlementSaved : groupSetup ? groupCreated : false}
+          onCreateGroup={groupSetup ? undefined : handleCreateGroupFromPeople}
+          receipt={receipt}
+          isEqual={session.pax !== undefined}
+        />
+        <GroupCreatedModal visible={groupCreated} onGoToGroups={handleGoToGroups} />
+        <ShareBillModal
+          visible={shareModalVisible}
+          onClose={() => setShareModalVisible(false)}
+          session={session}
+          title={billTitle}
+          onShareId={handleShareId}
+        />
+      </>
+    );
+  }
 
   return (
     <SafeAreaView style={styles.safeArea}>

@@ -1,10 +1,13 @@
-export const TONES = ['friendly', 'neutral', 'firm', 'funny'] as const;
+export const TONES = ['friendly', 'casual', 'neutral', 'firm', 'urgent', 'apologetic', 'funny'] as const;
 export type Tone = (typeof TONES)[number];
 
 export const TONE_LABELS: Record<Tone, string> = {
   friendly: 'Friendly',
+  casual: 'Casual',
   neutral: 'Neutral',
   firm: 'Firm',
+  urgent: 'Urgent',
+  apologetic: 'Apologetic',
   funny: 'Funny',
 };
 
@@ -23,6 +26,12 @@ export function buildReminder(tone: Tone, input: ReminderInput) {
   switch (tone) {
     case 'friendly':
       return `Hi ${name}! 😊 Just a little reminder about your share for ${title}: ${amount}. Could you send it${payTo} when you get a chance? Thank you!`;
+    case 'casual':
+      return `Hey ${name}, quick one - your ${amount} for ${title} is still open. Send it${payTo} when you can 🙌`;
+    case 'urgent':
+      return `Hi ${name}, could you settle your ${amount} for ${title}${payTo} today? It's time-sensitive. Thank you!`;
+    case 'apologetic':
+      return `Hi ${name}, sorry to bug you! Just a gentle nudge about your ${amount} for ${title}. Could you send it${payTo} when you get a chance?`;
     case 'neutral':
       return `Hi ${name}, your share for ${title} is ${amount}. Please send it${payTo} when you can.`;
     case 'firm':

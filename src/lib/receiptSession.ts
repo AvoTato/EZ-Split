@@ -53,6 +53,20 @@ export function getGroupSettlementSetup() {
   return groupSettlementSetup;
 }
 
+export type SplitSetup = {
+  people: Person[];
+};
+
+let splitSetup: SplitSetup | null = null;
+
+export function setSplitSetup(setup: SplitSetup | null) {
+  splitSetup = setup;
+}
+
+export function getSplitSetup() {
+  return splitSetup;
+}
+
 export type ItemAssignment = {
   itemIndex: number;
   personId: string;

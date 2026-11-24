@@ -63,6 +63,14 @@ export function useReceiptPicker() {
     });
   }, []);
 
+  const pickFrom = useCallback(async (source: Source) => {
+    try {
+      return await (source === 'camera' ? takePhoto() : chooseFromLibrary());
+    } catch {
+      return null;
+    }
+  }, []);
+
   const choose = async (source: Source) => {
     setVisible(false);
     try {
@@ -98,7 +106,7 @@ export function useReceiptPicker() {
     </Modal>
   );
 
-  return { pick, sheet };
+  return { pick, pickFrom, sheet };
 }
 
 const styles = StyleSheet.create({

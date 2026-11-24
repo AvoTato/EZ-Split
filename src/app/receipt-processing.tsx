@@ -1,6 +1,7 @@
+import { Ionicons } from '@expo/vector-icons';
 import { useRouter } from 'expo-router';
-import { useEffect, useRef } from 'react';
-import { Alert, Animated, Image, Platform, StyleSheet, Text, View } from 'react-native';
+import { useEffect, useRef, useState } from 'react';
+import { Alert, Animated, Easing, Platform, Pressable, StyleSheet, Text, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
 import { ScanError, parseReceiptImage } from '../lib/api';
@@ -14,12 +15,87 @@ import { checkReceipt, repairTotal } from '../lib/receiptReview';
 import { setParsedReceipt, takePendingImage } from '../lib/receiptSession';
 
 const PURPLE = '#9B87F0';
-const TRACK_GRAY = '#D9D9D9';
+const PURPLE_DARK = '#5B3FD8';
+const INK = '#1A1530';
+const MUTED = '#6B6880';
+const TRACK = '#EFECF8';
+const BORDER = '#E6E3F0';
+const GREEN = '#2E7D32';
+const GREEN_TINT = '#E6F4EA';
+const SKELETON = '#E8E6EF';
 const MIN_VISIBLE_MS = 200;
+const CARD_HEIGHT = 280;
+const STEP_MS = 1000;
+const LAST_PENDING_STEP = 2;
+
+const STEPS = [
+  'Receipt uploaded',
+  'Items found',
+  'Checking tax and service charge',
+  'Matching the total',
+];
+
+const SKELETON_ROWS = [
+  { top: 22, left: 56, width: 88, height: 14 },
+  { top: 54, left: 20, width: 180, height: 10 },
+  { top: 80, left: 20, width: 132, height: 10 },
+  { top: 106, left: 20, width: 150, height: 10 },
+  { top: 132, left: 20, width: 104, height: 10 },
+  { top: 190, left: 20, width: 96, height: 10 },
+  { top: 216, left: 20, width: 100, height: 10 },
+  { top: 242, left: 20, width: 178, height: 10 },
+];
+
+function Spinner() {
+  const [spin] = useState(() => new Animated.Value(0));
+
+  useEffect(() => {
+    const loop = Animated.loop(
+      Animated.timing(spin, { toValue: 1, duration: 900, easing: Easing.linear, useNativeDriver: true }),
+    );
+    loop.start();
+    return () => loop.stop();
+  }, [spin]);
+
+  const rotate = spin.interpolate({ inputRange: [0, 1], outputRange: ['0deg', '360deg'] });
+
+  return <Animated.View style={[styles.spinner, { transform: [{ rotate }] }]} />;
+}
+
+function StepIcon({ state }: { state: 'done' | 'active' | 'pending' }) {
+  if (state === 'done') {
+    return (
+      <View style={styles.stepDone}>
+        <Ionicons name="checkmark" size={18} color={GREEN} />
+      </View>
+    );
+  }
+  if (state === 'active') return <Spinner />;
+  return <View style={styles.stepPending} />;
+}
 
 export default function ReceiptProcessingScreen() {
   const router = useRouter();
-  const progress = useRef(new Animated.Value(0)).current;
+  const [progress] = useState(() => new Animated.Value(0));
+  const [scan] = useState(() => new Animated.Value(0));
+  const cancelledRef = useRef(false);
+  const [activeStep, setActiveStep] = useState(LAST_PENDING_STEP - 1);
+  const [finished, setFinished] = useState(false);
+
+  useEffect(() => {
+    const sweep = Animated.loop(
+      Animated.sequence([
+        Animated.timing(scan, { toValue: 1, duration: 1600, easing: Easing.inOut(Easing.ease), useNativeDriver: true }),
+        Animated.timing(scan, { toValue: 0, duration: 1600, easing: Easing.inOut(Easing.ease), useNativeDriver: true }),
+      ]),
+    );
+    sweep.start();
+    const timer = setTimeout(() => setActiveStep(LAST_PENDING_STEP), STEP_MS);
+    return () => {
+      sweep.stop();
+      clearTimeout(timer);
+    };
+  }, [scan]);
 
   useEffect(() => {
     Animated.timing(progress, {
@@ -35,7 +111,7 @@ export default function ReceiptProcessingScreen() {
     }
 
     const startedAt = Date.now();
-    let cancelled = false;
+    cancelledRef.current = false;
 
     (async () => {
       let parsed: ParsedReceipt | null = null;
@@ -77,11 +153,11 @@ export default function ReceiptProcessingScreen() {
         }
       }
 
-      if (cancelled) return;
+      if (cancelledRef.current) return;
       const elapsed = Date.now() - startedAt;
       const remaining = Math.max(0, MIN_VISIBLE_MS - elapsed);
       setTimeout(() => {
-        if (cancelled) return;
+        if (cancelledRef.current) return;
 
         if (!parsed) {
           // react-native-web's Alert.alert is a no-op, so its onPress (the redirect) would
@@ -99,12 +175,13 @@ export default function ReceiptProcessingScreen() {
           return;
         }
 
+        setFinished(true);
         Animated.timing(progress, {
           toValue: 1,
           duration: 150,
           useNativeDriver: false,
         }).start(() => {
-          if (cancelled) return;
+          if (cancelledRef.current) return;
           setParsedReceipt(parsed);
           router.replace('/instant-settlement');
         });
@@ -112,7 +189,7 @@ export default function ReceiptProcessingScreen() {
     })();
 
     return () => {
-      cancelled = true;
+      cancelledRef.current = true;
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
@@ -122,18 +199,58 @@ export default function ReceiptProcessingScreen() {
     outputRange: ['0%', '100%'],
   });
 
+  const cancel = () => {
+    cancelledRef.current = true;
+    router.replace('/upload-file');
+  };
+
+  const bandY = scan.interpolate({ inputRange: [0, 1], outputRange: [0, CARD_HEIGHT - 70] });
+
+  const stepState = (index: number) => {
+    if (finished || index < activeStep) return 'done' as const;
+    if (index === activeStep) return 'active' as const;
+    return 'pending' as const;
+  };
+
   return (
     <SafeAreaView style={styles.safeArea}>
       <View style={styles.content}>
-        <Image
-          source={require('../../assets/images/ezsplit-logo.png')}
-          style={styles.logo}
-          resizeMode="contain"
-        />
-        <Text style={styles.text}>Processing Receipt Data....</Text>
+        <View>
+          <Text style={styles.stepLabel}>Instant split · Step 1 of 3</Text>
+          <Text style={styles.title}>Reading your receipt</Text>
+        </View>
+
         <View style={styles.track}>
           <Animated.View style={[styles.fill, { width: widthInterpolate }]} />
         </View>
+
+        <View style={styles.card}>
+          {SKELETON_ROWS.map((row) => (
+            <View key={row.top} style={[styles.skeleton, row]} />
+          ))}
+          <Animated.View style={[styles.band, { transform: [{ translateY: bandY }] }]}>
+            <View style={styles.bandLine} />
+          </Animated.View>
+        </View>
+
+        <Text style={styles.hangTight}>Hang tight</Text>
+        <Text style={styles.help}>We are reading the items and prices. You will check them next.</Text>
+
+        <View style={styles.steps}>
+          {STEPS.map((label, index) => {
+            const state = stepState(index);
+            return (
+              <View key={label} style={styles.stepRow}>
+                <StepIcon state={state} />
+                <Text style={[styles.stepText, state === 'pending' && styles.stepTextPending]}>{label}</Text>
+              </View>
+            );
+          })}
+        </View>
+
+        <Pressable accessibilityRole="button" onPress={cancel} hitSlop={12} style={styles.cancel}>
+          <Text style={styles.cancelText}>Cancel</Text>
+        </Pressable>
       </View>
     </SafeAreaView>
   );
@@ -144,35 +261,136 @@ const styles = StyleSheet.create({
     flex: 1,
     backgroundColor: '#fff',
     alignItems: 'center',
-    justifyContent: 'center',
   },
   content: {
+    flex: 1,
     width: '100%',
     maxWidth: 480,
-    alignItems: 'center',
-    paddingHorizontal: 40,
+    paddingHorizontal: 20,
+    paddingTop: 12,
   },
-  logo: {
-    width: 90,
-    height: 90,
-    marginBottom: 24,
+  stepLabel: {
+    fontSize: 14,
+    fontWeight: '700',
+    color: MUTED,
   },
-  text: {
-    fontSize: 16,
-    fontWeight: '600',
-    color: '#000',
-    marginBottom: 16,
+  title: {
+    fontSize: 28,
+    fontWeight: '800',
+    color: INK,
+    letterSpacing: -0.6,
   },
   track: {
-    width: '100%',
     height: 8,
     borderRadius: 4,
-    backgroundColor: TRACK_GRAY,
+    backgroundColor: TRACK,
     overflow: 'hidden',
+    marginTop: 14,
+    marginBottom: 28,
   },
   fill: {
     height: '100%',
     borderRadius: 4,
     backgroundColor: PURPLE,
+  },
+  card: {
+    alignSelf: 'center',
+    width: 220,
+    height: CARD_HEIGHT,
+    borderRadius: 20,
+    borderWidth: 1,
+    borderColor: BORDER,
+    backgroundColor: '#fff',
+    overflow: 'hidden',
+  },
+  skeleton: {
+    position: 'absolute',
+    borderRadius: 6,
+    backgroundColor: SKELETON,
+  },
+  band: {
+    position: 'absolute',
+    top: 0,
+    left: 0,
+    right: 0,
+    height: 70,
+    backgroundColor: 'rgba(155, 135, 240, 0.12)',
+  },
+  bandLine: {
+    position: 'absolute',
+    top: 0,
+    left: 0,
+    right: 0,
+    height: 2,
+    backgroundColor: PURPLE,
+  },
+  hangTight: {
+    fontSize: 26,
+    fontWeight: '800',
+    color: INK,
+    letterSpacing: -0.5,
+    textAlign: 'center',
+    marginTop: 28,
+  },
+  help: {
+    fontSize: 16,
+    lineHeight: 22,
+    color: MUTED,
+    textAlign: 'center',
+    marginTop: 8,
+    paddingHorizontal: 12,
+  },
+  steps: {
+    gap: 16,
+    marginTop: 28,
+    paddingHorizontal: 8,
+  },
+  stepRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 16,
+  },
+  stepDone: {
+    width: 30,
+    height: 30,
+    borderRadius: 15,
+    backgroundColor: GREEN_TINT,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  spinner: {
+    width: 30,
+    height: 30,
+    borderRadius: 15,
+    borderWidth: 3,
+    borderColor: TRACK,
+    borderTopColor: PURPLE,
+    borderRightColor: PURPLE,
+  },
+  stepPending: {
+    width: 30,
+    height: 30,
+    borderRadius: 15,
+    borderWidth: 2,
+    borderColor: TRACK,
+  },
+  stepText: {
+    flex: 1,
+    fontSize: 17,
+    fontWeight: '700',
+    color: INK,
+  },
+  stepTextPending: {
+    color: MUTED,
+  },
+  cancel: {
+    marginTop: 'auto',
+    alignSelf: 'center',
+    paddingVertical: 24,
+  },
+  cancelText: {
+    fontSize: 17,
+    fontWeight: '800',
+    color: PURPLE_DARK,
   },
 });

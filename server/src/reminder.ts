@@ -1,4 +1,4 @@
-export const TONES = ['friendly', 'neutral', 'firm', 'funny'] as const;
+export const TONES = ['friendly', 'casual', 'neutral', 'firm', 'urgent', 'apologetic', 'funny'] as const;
 export type Tone = (typeof TONES)[number];
 
 export const MAX_REMINDER_BODY_BYTES = 4 * 1024;
@@ -62,6 +62,9 @@ export function parseReminderBody(raw: unknown): ReminderParse {
 
 const TONE_GUIDE: Record<Tone, string> = {
   friendly: 'warm, kind and upbeat',
+  casual: 'relaxed and chatty, like texting a friend',
+  urgent: 'time-sensitive, asking them to settle today, but still respectful and never threatening',
+  apologetic: 'soft and a little sorry to ask, a gentle nudge',
   neutral: 'polite, plain and matter-of-fact',
   firm: 'direct and serious, but still respectful, never rude or threatening',
   funny: 'light-hearted and playful with a little humour, never mean',
