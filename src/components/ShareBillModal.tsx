@@ -26,6 +26,11 @@ import { TONES, TONE_LABELS, buildReminder, type Tone } from '../lib/reminders';
 import { billSnapshot, withShareLink } from '../lib/shareBill';
 
 const PURPLE = '#9B87F0';
+const PURPLE_DARK = '#5B3FD8';
+const INK = '#1A1530';
+const PANEL = '#F8F7FB';
+const LINE = '#E6E3F0';
+const AVATAR_COLORS = ['#5B3FD8', '#0F766E', '#B45309', '#C2185B', '#0369A1', '#7C3AED'];
 const PURPLE_TINT = '#F1EDFD';
 const PILL_GRAY = '#EFEFEF';
 const MUTED = '#8A8A8A';
@@ -238,6 +243,29 @@ export default function ShareBillModal({ visible, onClose, session, title, remin
     </View>
   );
 
+  const remindChannels = (
+    <View style={styles.channelRow}>
+      <Pressable style={styles.channel} onPress={handleWhatsApp}>
+        <View style={styles.remindCircle}>
+          <Ionicons name="chatbubble-outline" size={26} color={PURPLE_DARK} />
+        </View>
+        <Text style={styles.remindChannelLabel}>WhatsApp</Text>
+      </Pressable>
+      <Pressable style={styles.channel} onPress={handleMessages}>
+        <View style={styles.remindCircle}>
+          <Ionicons name="chatbubble-outline" size={26} color={PURPLE_DARK} />
+        </View>
+        <Text style={styles.remindChannelLabel}>Messages</Text>
+      </Pressable>
+      <Pressable style={styles.channel} onPress={handleMore}>
+        <View style={styles.remindCircle}>
+          <Ionicons name="ellipsis-horizontal" size={26} color={PURPLE_DARK} />
+        </View>
+        <Text style={styles.remindChannelLabel}>More</Text>
+      </Pressable>
+    </View>
+  );
+
   return (
     <Modal visible={visible} transparent animationType="fade" onRequestClose={close}>
       <KeyboardAvoidingView
@@ -310,43 +338,54 @@ export default function ShareBillModal({ visible, onClose, session, title, remin
                       : 'Pick who to remind, then choose a tone'}
                   </Text>
 
-                  <Text style={styles.sectionLabel}>Who to remind</Text>
-                  <View style={styles.chipRow}>
-                    {candidates.map((person) => (
-                      <Pressable
-                        key={person.id}
-                        accessibilityRole="button"
-                        accessibilityState={{ selected: person.id === target.id }}
-                        onPress={() => pickPerson(person.id)}
-                        style={[styles.chip, person.id === target.id && styles.chipActive]}
-                      >
-                        <Text style={[styles.chipText, person.id === target.id && styles.chipTextActive]}>
-                          {person.name} · {money(person.amount)}
-                        </Text>
-                      </Pressable>
-                    ))}
+                  <Text style={styles.remindLabel}>WHO TO REMIND</Text>
+                  <View style={styles.remindChipRow}>
+                    {candidates.map((person) => {
+                      const selected = person.id === target.id;
+                      const index = Math.max(0, session.people.findIndex((p) => p.id === person.id));
+                      return (
+                        <Pressable
+                          key={person.id}
+                          accessibilityRole="button"
+                          accessibilityLabel={`Remind ${person.name}`}
+                          accessibilityState={{ selected }}
+                          onPress={() => pickPerson(person.id)}
+                          style={[styles.personChip, selected && styles.personChipActive]}
+                        >
+                          <View style={[styles.personAvatar, { backgroundColor: AVATAR_COLORS[index % AVATAR_COLORS.length] }]}>
+                            <Text style={styles.personAvatarText}>
+                              {person.name.trim().charAt(0).toUpperCase() || '?'}
+                            </Text>
+                          </View>
+                          <Text style={styles.personChipText}>{person.name}</Text>
+                        </Pressable>
+                      );
+                    })}
                   </View>
 
-                  <Text style={styles.sectionLabel}>Tone</Text>
-                  <View style={styles.chipRow}>
-                    {TONES.map((value) => (
-                      <Pressable
-                        key={value}
-                        accessibilityRole="button"
-                        accessibilityState={{ selected: value === tone }}
-                        onPress={() => pickTone(value)}
-                        style={[styles.chip, value === tone && styles.chipActive]}
-                      >
-                        <Text style={[styles.chipText, value === tone && styles.chipTextActive]}>
-                          {TONE_LABELS[value]}
-                        </Text>
-                      </Pressable>
-                    ))}
+                  <Text style={styles.remindLabel}>TONE</Text>
+                  <View style={styles.remindChipRow}>
+                    {TONES.map((value) => {
+                      const selected = value === tone;
+                      return (
+                        <Pressable
+                          key={value}
+                          accessibilityRole="button"
+                          accessibilityState={{ selected }}
+                          onPress={() => pickTone(value)}
+                          style={[styles.toneChip, selected && styles.toneChipActive]}
+                        >
+                          <Text style={[styles.toneChipText, selected && styles.toneChipTextActive]}>
+                            {TONE_LABELS[value]}
+                          </Text>
+                        </Pressable>
+                      );
+                    })}
                   </View>
 
                   <TextInput
                     accessibilityLabel="Reminder message"
-                    style={styles.messageInput}
+                    style={styles.remindMessage}
                     value={reminderText}
                     onChangeText={setEdited}
                     multiline
@@ -359,32 +398,34 @@ export default function ShareBillModal({ visible, onClose, session, title, remin
                       accessibilityLabel="Rewrite message with AI"
                       disabled={rewriting}
                       onPress={handleRewrite}
-                      style={({ pressed }) => [styles.aiButton, (pressed || rewriting) && styles.pressed]}
+                      style={({ pressed }) => [styles.rewriteButton, (pressed || rewriting) && styles.pressed]}
                     >
                       {rewriting ? (
-                        <ActivityIndicator size="small" color={PURPLE} />
+                        <ActivityIndicator size="small" color={PURPLE_DARK} />
                       ) : (
-                        <Ionicons name="sparkles" size={16} color={PURPLE} />
+                        <Ionicons name="sparkles-outline" size={22} color={PURPLE_DARK} />
                       )}
-                      <Text style={styles.aiButtonText}>Rewrite with AI</Text>
+                      <Text style={styles.rewriteText}>Rewrite with AI</Text>
                     </Pressable>
                   )}
 
                   <View style={styles.orRow}>
                     <View style={styles.orDivider} />
-                    <Text style={styles.orText}>SEND VIA</Text>
+                    <Text style={styles.remindOr}>SEND VIA</Text>
                     <View style={styles.orDivider} />
                   </View>
 
-                  {channels}
+                  {remindChannels}
                 </>
               ) : (
                 <Text style={styles.emptyText}>Nobody still owes anything, so there is no one to remind.</Text>
               )}
 
-              <Pressable style={styles.cancelButton} onPress={close}>
-                <Text style={styles.cancelButtonText}>Cancel</Text>
-              </Pressable>
+              {!(mode === 'remind' && target) && (
+                <Pressable style={styles.cancelButton} onPress={close}>
+                  <Text style={styles.cancelButtonText}>Cancel</Text>
+                </Pressable>
+              )}
             </ScrollView>
           </Pressable>
         </Pressable>
@@ -499,6 +540,121 @@ const styles = StyleSheet.create({
     fontSize: 14,
     fontWeight: '700',
     color: PURPLE,
+  },
+  remindLabel: {
+    fontSize: 16,
+    fontWeight: '800',
+    color: '#6B6880',
+    letterSpacing: 0.3,
+    marginBottom: 12,
+  },
+  remindChipRow: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    gap: 12,
+    marginBottom: 22,
+  },
+  personChip: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 12,
+    borderRadius: 999,
+    borderWidth: 2,
+    borderColor: LINE,
+    backgroundColor: '#fff',
+    paddingVertical: 8,
+    paddingLeft: 8,
+    paddingRight: 20,
+  },
+  personChipActive: {
+    backgroundColor: PURPLE_TINT,
+    borderColor: PURPLE,
+  },
+  personAvatar: {
+    width: 44,
+    height: 44,
+    borderRadius: 22,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  personAvatarText: {
+    fontSize: 18,
+    fontWeight: '800',
+    color: '#fff',
+  },
+  personChipText: {
+    fontSize: 20,
+    fontWeight: '800',
+    color: INK,
+  },
+  toneChip: {
+    borderRadius: 999,
+    borderWidth: 2,
+    borderColor: PURPLE,
+    backgroundColor: '#fff',
+    paddingVertical: 14,
+    paddingHorizontal: 22,
+  },
+  toneChipActive: {
+    backgroundColor: PURPLE,
+  },
+  toneChipText: {
+    fontSize: 18,
+    fontWeight: '800',
+    color: PURPLE_DARK,
+  },
+  toneChipTextActive: {
+    color: INK,
+  },
+  remindMessage: {
+    minHeight: 120,
+    borderWidth: 1,
+    borderColor: LINE,
+    backgroundColor: PANEL,
+    borderRadius: 20,
+    paddingVertical: 14,
+    paddingHorizontal: 16,
+    fontSize: 18,
+    lineHeight: 26,
+    color: INK,
+    textAlignVertical: 'top',
+  },
+  rewriteButton: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 10,
+    marginTop: 16,
+    borderRadius: 20,
+    borderWidth: 2,
+    borderColor: PURPLE,
+    backgroundColor: '#fff',
+    paddingVertical: 18,
+  },
+  rewriteText: {
+    fontSize: 18,
+    fontWeight: '800',
+    color: PURPLE_DARK,
+  },
+  remindOr: {
+    fontSize: 16,
+    fontWeight: '800',
+    color: '#6B6880',
+    letterSpacing: 0.3,
+  },
+  remindCircle: {
+    width: 56,
+    height: 56,
+    borderRadius: 28,
+    backgroundColor: PURPLE_TINT,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  remindChannelLabel: {
+    fontSize: 17,
+    fontWeight: '800',
+    color: INK,
+    marginTop: 8,
   },
   pressed: {
     opacity: 0.65,

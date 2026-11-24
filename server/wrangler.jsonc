@@ -31,7 +31,7 @@
     {
       "binding": "DB",
       "database_name": "ez-split",
-      "database_id": "1b65c9dd-7dfe-4a19-b955-5597efd50268",
+      "database_id": "80788e74-1a5f-4ab0-82c5-e163810ea287",
       "migrations_dir": "migrations"
     }
   ]

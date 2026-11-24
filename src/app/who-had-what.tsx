@@ -4,24 +4,63 @@ import { useEffect, useRef, useState } from 'react';
 import { Pressable, ScrollView, StyleSheet, Text, TextInput, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
+import { money, pctOf } from '../lib/format';
 import { goBack } from '../lib/navigation';
 import type { ParsedReceipt } from '../lib/parseReceipt';
 import {
   getGroupSettlementSetup,
   getParsedReceipt,
+  getSplitSetup,
   setWhoHadWhatSession,
   type ItemAssignment,
   type Person,
 } from '../lib/receiptSession';
+import { computeSettlement, totalSharesByItem } from '../lib/settlement';
 
 const PURPLE = '#9B87F0';
-const PILL_GRAY = '#EFEFEF';
-const GREEN = '#2E7D32';
-const MUTED = '#8A8A8A';
+const PURPLE_DARK = '#5B3FD8';
+const PURPLE_TINT = '#F0ECFD';
+const INK = '#1A1530';
+const MUTED = '#6B6880';
+const BORDER = '#E6E3F0';
+const TRACK = '#EFECF8';
+const PANEL = '#F8F7FB';
+const AMBER = '#9A4A06';
+const DANGER = '#B42318';
+const AVATAR_COLORS = ['#5B3FD8', '#0F766E', '#B45309', '#C2185B', '#0369A1', '#7C3AED'];
 
-function money(value: number) {
-  return `RM ${value.toFixed(2)}`;
+type View_ = 'dish' | 'person';
+
+const FRACTIONS: Record<string, string> = {
+  '1/2': '½',
+  '1/3': '⅓',
+  '2/3': '⅔',
+  '1/4': '¼',
+  '3/4': '¾',
+  '1/5': '⅕',
+  '1/6': '⅙',
+  '1/8': '⅛',
+};
+
+function gcd(a: number, b: number): number {
+  return b === 0 ? a : gcd(b, a % b);
 }
+
+function fractionLabel(numerator: number, denominator: number) {
+  const divisor = gcd(numerator, denominator) || 1;
+  const n = numerator / divisor;
+  const d = denominator / divisor;
+  if (n === d) return '';
+  const key = `${n}/${d}`;
+  return FRACTIONS[key] ?? key;
+}
+
+function initialOf(name: string, index: number) {
+  const first = name.trim().charAt(0);
+  return first ? first.toUpperCase() : String(index + 1);
+}
+
+const colorOf = (index: number) => AVATAR_COLORS[index % AVATAR_COLORS.length];
 
 export default function WhoHadWhatScreen() {
   const router = useRouter();
@@ -29,8 +68,9 @@ export default function WhoHadWhatScreen() {
   const [people, setPeople] = useState<Person[]>([]);
   const [assignments, setAssignments] = useState<ItemAssignment[]>([]);
   const [expandedPersonId, setExpandedPersonId] = useState<string | null>(null);
-  const [sharedItems, setSharedItems] = useState<Set<number>>(new Set());
+  const [view, setView] = useState<View_>('dish');
   const nextPersonId = useRef(1);
+  const isGroup = Boolean(getGroupSettlementSetup());
 
   useEffect(() => {
     const stored = getParsedReceipt();
@@ -42,44 +82,27 @@ export default function WhoHadWhatScreen() {
     if (groupMembers.length > 0) {
       setPeople((prev) => (prev.length === 0 ? groupMembers : prev));
       nextPersonId.current = groupMembers.length + 1;
+    } else {
+      const carried = getSplitSetup()?.people ?? [];
+      if (carried.length > 0) {
+        setPeople((prev) => (prev.length === 0 ? carried : prev));
+        nextPersonId.current = carried.length + 1;
+      }
     }
-    setSharedItems(new Set(stored.items.flatMap((item, i) => (item.qty > 1 ? [i] : []))));
     setReceipt(stored);
   }, [router]);
 
   if (!receipt) return null;
 
-  const getPersonAssignments = (personId: string) =>
-    assignments.filter((a) => a.personId === personId && a.shares > 0);
+  const totalShares = totalSharesByItem(receipt, assignments);
+  const assignedCount = totalShares.filter((shares) => shares > 0).length;
+  const { settlementPeople } = computeSettlement(receipt, people, assignments);
 
-  const getPersonShares = (personId: string, itemIndex: number) =>
-    assignments.find((a) => a.personId === personId && a.itemIndex === itemIndex)?.shares ?? 0;
+  const isAssigned = (personId: string, itemIndex: number) =>
+    assignments.some((a) => a.personId === personId && a.itemIndex === itemIndex && a.shares > 0);
 
-  const getOwnerId = (itemIndex: number) =>
-    assignments.find((a) => a.itemIndex === itemIndex && a.shares > 0)?.personId ?? null;
-
-  const personLabel = (personId: string) => {
-    const index = people.findIndex((p) => p.id === personId);
-    return people[index]?.name.trim() || `Person ${index + 1}`;
-  };
-
-  const toggleShared = (itemIndex: number) => {
-    setSharedItems((prev) => {
-      const next = new Set(prev);
-      if (next.has(itemIndex)) {
-        next.delete(itemIndex);
-        const [keep] = assignments.filter((a) => a.itemIndex === itemIndex);
-        if (keep) {
-          setAssignments((all) =>
-            all.filter((a) => a.itemIndex !== itemIndex || a.personId === keep.personId),
-          );
-        }
-      } else {
-        next.add(itemIndex);
-      }
-      return next;
-    });
-  };
+  const assignedPeopleCount = (itemIndex: number) =>
+    assignments.filter((a) => a.itemIndex === itemIndex && a.shares > 0).length;
 
   const addPerson = () => {
     const taken = new Set(people.map((p) => p.id));
@@ -90,7 +113,7 @@ export default function WhoHadWhatScreen() {
     }
     nextPersonId.current += 1;
     setPeople((prev) => [...prev, { id, name: '' }]);
-    setExpandedPersonId(id);
+    if (view === 'person') setExpandedPersonId(id);
   };
 
   const updatePersonName = (personId: string, name: string) =>
@@ -106,8 +129,6 @@ export default function WhoHadWhatScreen() {
     setExpandedPersonId((prev) => (prev === personId ? null : personId));
 
   const toggleItemForPerson = (personId: string, itemIndex: number) => {
-    const ownerId = getOwnerId(itemIndex);
-    if (ownerId && ownerId !== personId && !sharedItems.has(itemIndex)) return;
     setAssignments((prev) => {
       const exists = prev.some((a) => a.personId === personId && a.itemIndex === itemIndex);
       if (exists) {
@@ -122,152 +143,223 @@ export default function WhoHadWhatScreen() {
     router.push('/item-quantities');
   };
 
+  const servicePct = pctOf(receipt.serviceCharge, receipt.subtotal);
+  const taxPct = pctOf(receipt.tax, receipt.subtotal);
+  const subtitleParts = [
+    receipt.subtotal !== null ? `Subtotal ${money(receipt.subtotal)}` : null,
+    receipt.serviceCharge !== null ? `+${servicePct !== null ? `${servicePct}% ` : ''}service` : null,
+    receipt.tax !== null ? `+${taxPct !== null ? `${taxPct}% ` : ''}SST` : null,
+  ].filter((part): part is string => part !== null);
+
+
   return (
     <SafeAreaView style={styles.safeArea}>
       <View style={styles.page}>
         <View style={styles.header}>
-          <Pressable onPress={() => goBack(router)} hitSlop={12}>
-            <Ionicons name="chevron-back" size={26} color="#000" />
+          <Pressable
+            accessibilityRole="button"
+            accessibilityLabel="Go back"
+            onPress={() => goBack(router)}
+            hitSlop={12}
+          >
+            <Ionicons name="chevron-back" size={28} color={INK} />
           </Pressable>
           <View>
-            <Text style={styles.headerEyebrow}>
-              {getGroupSettlementSetup() ? 'Group Settlement' : 'Instant Settlement'}
-            </Text>
-            <Text style={styles.headerTitle}>Who had what?</Text>
+            <Text style={styles.stepLabel}>{isGroup ? 'Group settlement' : 'Instant split · Step 2 of 3'}</Text>
+            <Text style={styles.title}>Who had what?</Text>
           </View>
         </View>
 
-        <ScrollView contentContainerStyle={styles.content}>
-          {people.map((person, index) => {
-            const personAssignments = getPersonAssignments(person.id);
-            const isExpanded = expandedPersonId === person.id;
+        <View style={styles.progressTrack}>
+          <View style={styles.progressFill} />
+        </View>
 
-            return (
-              <View key={person.id} style={styles.card}>
-                <View style={styles.cardHeader}>
-                  <TextInput
-                    style={styles.personNameInput}
-                    value={person.name}
-                    onChangeText={(text) => updatePersonName(person.id, text)}
-                    placeholder={`Person ${index + 1}`}
-                    placeholderTextColor={MUTED}
-                  />
-                  <Pressable
-                    accessibilityRole="button"
-                    accessibilityLabel={`Remove ${person.name || `Person ${index + 1}`}`}
-                    onPress={() => removePerson(person.id)}
-                    hitSlop={8}
-                    style={styles.removeButton}
-                  >
-                    <Ionicons name="trash-outline" size={20} color="#B42318" />
-                  </Pressable>
-                  <Pressable onPress={() => toggleExpanded(person.id)} hitSlop={8}>
-                    <Ionicons
-                      name={isExpanded ? 'chevron-up' : 'chevron-down'}
-                      size={20}
-                      color="#000"
-                    />
-                  </Pressable>
-                </View>
+        <ScrollView contentContainerStyle={styles.content} keyboardShouldPersistTaps="handled">
+          <View style={styles.receiptCard}>
+            <View style={styles.receiptIcon}>
+              <Ionicons name="receipt-outline" size={26} color={PURPLE_DARK} />
+            </View>
+            <View style={styles.receiptCopy}>
+              <Text style={styles.receiptTitle}>Receipt</Text>
+              {subtitleParts.length > 0 && <Text style={styles.receiptSub}>{subtitleParts.join(' · ')}</Text>}
+            </View>
+            {receipt.total !== null && <Text style={styles.receiptTotal}>{money(receipt.total)}</Text>}
+          </View>
 
-                {isExpanded ? (
-                  <View style={styles.checklist}>
-                    <Text style={styles.hintText}>
-                      Tap &quot;Multiple members&quot; on an item that more than one person shared.
-                      Otherwise it&apos;s crossed off for everyone else once picked.
-                    </Text>
-                    {receipt.items.map((item, itemIndex) => {
-                      const checked = getPersonShares(person.id, itemIndex) > 0;
-                      const shared = sharedItems.has(itemIndex);
-                      const ownerId = getOwnerId(itemIndex);
-                      const takenBy = ownerId && ownerId !== person.id && !shared ? ownerId : null;
-                      const canShare = !takenBy && item.price > 0;
+          <View style={styles.segmented}>
+            <Pressable
+              accessibilityRole="button"
+              style={[styles.segment, view === 'dish' && styles.segmentActive]}
+              onPress={() => setView('dish')}
+            >
+              <Text style={[styles.segmentText, view === 'dish' && styles.segmentTextActive]}>By dish</Text>
+            </Pressable>
+            <Pressable
+              accessibilityRole="button"
+              style={[styles.segment, view === 'person' && styles.segmentActive]}
+              onPress={() => setView('person')}
+            >
+              <Text style={[styles.segmentText, view === 'person' && styles.segmentTextActive]}>By person</Text>
+            </Pressable>
+          </View>
+
+          <View style={styles.statusRow}>
+            <Ionicons name="warning-outline" size={24} color={AMBER} />
+            <Text style={styles.statusText}>
+              {`${assignedCount} of ${receipt.items.length} dishes assigned · tap a name to add or remove`}
+            </Text>
+          </View>
+
+          {view === 'dish' &&
+            receipt.items.map((item, itemIndex) => {
+              const ways = assignedPeopleCount(itemIndex);
+              const unit = item.qty > 0 ? item.price / item.qty : item.price;
+              return (
+                <View key={itemIndex} style={styles.card}>
+                  <View style={styles.dishTop}>
+                    <View style={styles.dishCopy}>
+                      <Text style={styles.dishName}>{item.name}</Text>
+                      <Text style={styles.dishSub}>
+                        {item.qty} × {unit.toFixed(2)}
+                        {ways > 1 ? ` · split ${ways} ways` : ''}
+                      </Text>
+                    </View>
+                    <Text style={styles.dishPrice}>{money(item.price)}</Text>
+                  </View>
+                  <View style={styles.circles}>
+                    {people.map((person, personIndex) => {
+                      const on = isAssigned(person.id, itemIndex);
                       return (
-                        <View key={itemIndex} style={styles.checklistRow}>
-                          <Pressable
-                            style={styles.checklistMain}
-                            disabled={!!takenBy}
-                            onPress={() => toggleItemForPerson(person.id, itemIndex)}
-                          >
-                            <View
-                              style={[
-                                styles.checkbox,
-                                checked && styles.checkboxChecked,
-                                takenBy && styles.checkboxDisabled,
-                              ]}
-                            >
-                              {checked && <Ionicons name="checkmark" size={16} color="#fff" />}
-                            </View>
-                            <View style={styles.itemTextGroup}>
-                              <Text style={[styles.itemName, takenBy && styles.itemCrossed]}>
-                                {item.qty > 1 ? `${item.qty}× ${item.name}` : item.name}
-                              </Text>
-                              {takenBy ? (
-                                <Text style={styles.takenByText}>
-                                  Taken by {personLabel(takenBy)}
-                                </Text>
-                              ) : null}
-                            </View>
-                            <Text style={[styles.itemPrice, takenBy && styles.itemCrossed]}>
-                              {money(item.price)}
-                            </Text>
-                          </Pressable>
-                          {canShare ? (
-                            <Pressable
-                              accessibilityRole="button"
-                              accessibilityLabel={`Multiple members for ${item.name}`}
-                              accessibilityState={{ selected: shared }}
-                              onPress={() => toggleShared(itemIndex)}
-                              hitSlop={6}
-                              style={[styles.shareChip, shared && styles.shareChipActive]}
-                            >
-                              <Text
-                                style={[styles.shareChipText, shared && styles.shareChipTextActive]}
-                              >
-                                Multiple members
-                              </Text>
-                            </Pressable>
-                          ) : null}
-                        </View>
+                        <Pressable
+                          key={person.id}
+                          accessibilityRole="button"
+                          accessibilityLabel={`${person.name.trim() || `Person ${personIndex + 1}`} had ${item.name}`}
+                          accessibilityState={{ selected: on }}
+                          onPress={() => toggleItemForPerson(person.id, itemIndex)}
+                          style={[styles.circle, on ? { backgroundColor: colorOf(personIndex) } : styles.circleOff]}
+                        >
+                          <Text style={[styles.circleText, !on && styles.circleTextOff]}>
+                            {initialOf(person.name, personIndex)}
+                          </Text>
+                        </Pressable>
                       );
                     })}
                   </View>
-                ) : (
-                  <Pressable
-                    style={styles.selectDishesPill}
-                    onPress={() => toggleExpanded(person.id)}
-                  >
-                    <View style={styles.selectDishesTextGroup}>
-                      <Text style={styles.selectDishesText}>Select dishes</Text>
-                      {personAssignments.length > 0 && (
-                        <View style={styles.selectedBadge}>
-                          <Text style={styles.selectedBadgeText}>
-                            {personAssignments.length} item{personAssignments.length === 1 ? '' : 's'}{' '}
-                            selected
-                          </Text>
-                        </View>
+                </View>
+              );
+            })}
+
+          {view === 'person' &&
+            people.map((person, personIndex) => {
+              const expanded = expandedPersonId === person.id;
+              const mine = assignments.filter((a) => a.personId === person.id && a.shares > 0);
+              const amount = settlementPeople.find((p) => p.id === person.id)?.amount ?? 0;
+              return (
+                <View key={person.id} style={styles.card}>
+                  <View style={styles.personTop}>
+                    <View style={[styles.personAvatar, { backgroundColor: colorOf(personIndex) }]}>
+                      <Text style={styles.personAvatarText}>{initialOf(person.name, personIndex)}</Text>
+                    </View>
+                    <TextInput
+                      style={styles.personName}
+                      value={person.name}
+                      onChangeText={(text) => updatePersonName(person.id, text)}
+                      placeholder={`Person ${personIndex + 1}`}
+                      placeholderTextColor={MUTED}
+                      editable={!isGroup}
+                      numberOfLines={1}
+                    />
+                    <Text style={styles.personAmount} numberOfLines={1}>
+                      {money(amount)}
+                    </Text>
+                    <Pressable
+                      accessibilityRole="button"
+                      accessibilityLabel={`${expanded ? 'Done editing' : 'Edit'} dishes for ${person.name.trim() || `Person ${personIndex + 1}`}`}
+                      onPress={() => toggleExpanded(person.id)}
+                      hitSlop={8}
+                    >
+                      <Text style={styles.editLink} numberOfLines={1}>
+                        {expanded ? 'Done' : 'Edit dishes'}
+                      </Text>
+                    </Pressable>
+                  </View>
+
+                  {expanded ? (
+                    <View style={styles.checklist}>
+                      {receipt.items.map((item, itemIndex) => {
+                        const checked = isAssigned(person.id, itemIndex);
+                        return (
+                          <Pressable
+                            key={itemIndex}
+                            style={styles.checkRow}
+                            onPress={() => toggleItemForPerson(person.id, itemIndex)}
+                          >
+                            <View style={[styles.checkbox, checked && styles.checkboxChecked]}>
+                              {checked && <Ionicons name="checkmark" size={16} color="#fff" />}
+                            </View>
+                            <Text style={styles.checkName}>
+                              {item.qty > 1 ? `${item.qty}× ${item.name}` : item.name}
+                            </Text>
+                            <Text style={styles.checkPrice}>{money(item.price)}</Text>
+                          </Pressable>
+                        );
+                      })}
+                      {!isGroup && people.length > 1 && (
+                        <Pressable
+                          accessibilityRole="button"
+                          accessibilityLabel={`Remove ${person.name.trim() || `Person ${personIndex + 1}`}`}
+                          onPress={() => removePerson(person.id)}
+                          style={styles.removeRow}
+                        >
+                          <Ionicons name="trash-outline" size={18} color={DANGER} />
+                          <Text style={styles.removeText}>Remove person</Text>
+                        </Pressable>
                       )}
                     </View>
-                    <Ionicons name="chevron-down" size={18} color={MUTED} />
-                  </Pressable>
-                )}
-              </View>
-            );
-          })}
-
-          <Pressable style={styles.addPersonPill} onPress={addPerson}>
-            <Ionicons name="add" size={20} color="#000" />
-            <Text style={styles.addPersonText}>Add person</Text>
-          </Pressable>
+                  ) : mine.length > 0 ? (
+                    <View style={styles.chips}>
+                      {mine.map((a) => {
+                        const item = receipt.items[a.itemIndex];
+                        const divisor = Math.max(totalShares[a.itemIndex], item.qty, 1);
+                        const fraction = fractionLabel(a.shares, divisor);
+                        return (
+                          <View key={a.itemIndex} style={styles.chip}>
+                            <Text style={styles.chipText}>
+                              {item.name}
+                              {fraction ? ` ${fraction}` : ''}
+                            </Text>
+                          </View>
+                        );
+                      })}
+                    </View>
+                  ) : (
+                    <Text style={styles.noDishes}>No dishes yet</Text>
+                  )}
+                </View>
+              );
+            })}
         </ScrollView>
 
         <View style={styles.footer}>
           <Pressable
-            style={[styles.calculateButton, people.length === 0 && styles.calculateButtonDisabled]}
+            accessibilityRole="button"
+            style={({ pressed }) => [styles.personButton, pressed && styles.pressed]}
+            onPress={addPerson}
+          >
+            <Ionicons name="add" size={24} color={PURPLE_DARK} />
+            <Text style={styles.personButtonText}>Person</Text>
+          </Pressable>
+          <Pressable
+            accessibilityRole="button"
+            style={({ pressed }) => [
+              styles.nextButton,
+              people.length === 0 && styles.disabled,
+              pressed && styles.pressed,
+            ]}
             onPress={handleNext}
             disabled={people.length === 0}
           >
-            <Text style={styles.calculateButtonText}>Next</Text>
+            <Text style={styles.nextText}>Next · Review split</Text>
           </Pressable>
         </View>
       </View>
@@ -289,191 +381,325 @@ const styles = StyleSheet.create({
   header: {
     flexDirection: 'row',
     alignItems: 'center',
-    gap: 12,
+    gap: 14,
     paddingHorizontal: 20,
-    paddingVertical: 16,
+    paddingTop: 12,
+    paddingBottom: 14,
   },
-  headerEyebrow: {
-    fontSize: 13,
-    fontWeight: '600',
+  stepLabel: {
+    fontSize: 14,
+    fontWeight: '700',
     color: MUTED,
   },
-  headerTitle: {
-    fontSize: 20,
-    fontWeight: '700',
-    color: '#000',
+  title: {
+    fontSize: 28,
+    fontWeight: '800',
+    color: INK,
+    letterSpacing: -0.6,
+  },
+  progressTrack: {
+    height: 8,
+    borderRadius: 4,
+    backgroundColor: TRACK,
+    overflow: 'hidden',
+    marginHorizontal: 20,
+    marginBottom: 16,
+  },
+  progressFill: {
+    width: '66.666%',
+    height: '100%',
+    borderRadius: 4,
+    backgroundColor: PURPLE,
   },
   content: {
     paddingHorizontal: 20,
-    paddingTop: 8,
     paddingBottom: 24,
-    gap: 16,
+    gap: 14,
+  },
+  receiptCard: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 14,
+    backgroundColor: PANEL,
+    borderRadius: 24,
+    borderWidth: 1,
+    borderColor: BORDER,
+    padding: 16,
+  },
+  receiptIcon: {
+    width: 56,
+    height: 56,
+    borderRadius: 16,
+    backgroundColor: PURPLE_TINT,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  receiptCopy: {
+    flex: 1,
+  },
+  receiptTitle: {
+    fontSize: 22,
+    fontWeight: '800',
+    color: INK,
+    letterSpacing: -0.4,
+  },
+  receiptSub: {
+    fontSize: 15,
+    color: MUTED,
+  },
+  receiptTotal: {
+    fontSize: 20,
+    fontWeight: '800',
+    color: INK,
+  },
+  segmented: {
+    flexDirection: 'row',
+    backgroundColor: PURPLE_TINT,
+    borderRadius: 24,
+    padding: 4,
+  },
+  segment: {
+    flex: 1,
+    borderRadius: 20,
+    paddingVertical: 16,
+    alignItems: 'center',
+    justifyContent: 'center',
+    borderWidth: 1,
+    borderColor: 'transparent',
+  },
+  segmentActive: {
+    backgroundColor: '#fff',
+    borderColor: BORDER,
+  },
+  segmentText: {
+    fontSize: 18,
+    fontWeight: '800',
+    color: PURPLE_DARK,
+  },
+  segmentTextActive: {
+    color: INK,
+  },
+  statusRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 10,
+  },
+  statusText: {
+    flex: 1,
+    fontSize: 17,
+    fontWeight: '800',
+    color: AMBER,
   },
   card: {
     backgroundColor: '#fff',
-    borderRadius: 16,
-    padding: 20,
-    boxShadow: '0px 2px 8px rgba(0, 0, 0, 0.08)',
-    elevation: 3,
+    borderRadius: 24,
+    borderWidth: 1,
+    borderColor: BORDER,
+    padding: 16,
   },
-  cardHeader: {
+  dishTop: {
+    flexDirection: 'row',
+    alignItems: 'flex-start',
+    justifyContent: 'space-between',
+    gap: 12,
+  },
+  dishCopy: {
+    flex: 1,
+  },
+  dishName: {
+    fontSize: 21,
+    fontWeight: '800',
+    color: INK,
+    letterSpacing: -0.4,
+  },
+  dishSub: {
+    fontSize: 16,
+    color: MUTED,
+    marginTop: 1,
+  },
+  dishPrice: {
+    fontSize: 21,
+    fontWeight: '800',
+    color: INK,
+    letterSpacing: -0.3,
+  },
+  circles: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    gap: 16,
+    marginTop: 16,
+  },
+  circle: {
+    width: 52,
+    height: 52,
+    borderRadius: 26,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  circleOff: {
+    borderWidth: 2,
+    borderStyle: 'dashed',
+    borderColor: '#C9C5D8',
+    backgroundColor: '#fff',
+  },
+  circleText: {
+    fontSize: 20,
+    fontWeight: '800',
+    color: '#fff',
+  },
+  circleTextOff: {
+    color: MUTED,
+  },
+  personTop: {
     flexDirection: 'row',
     alignItems: 'center',
-    justifyContent: 'space-between',
+    gap: 10,
   },
-  personNameInput: {
+  personAvatar: {
+    width: 36,
+    height: 36,
+    borderRadius: 18,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  personAvatarText: {
+    fontSize: 15,
+    fontWeight: '800',
+    color: '#fff',
+  },
+  personName: {
     flex: 1,
-    fontSize: 16,
-    fontWeight: '700',
-    color: '#000',
-    paddingVertical: 4,
-    marginRight: 12,
-    borderBottomWidth: 1,
-    borderBottomColor: PILL_GRAY,
+    minWidth: 0,
+    fontSize: 20,
+    fontWeight: '800',
+    color: INK,
+    letterSpacing: -0.3,
+    padding: 0,
+    margin: 0,
   },
-  removeButton: {
-    marginRight: 12,
+  personAmount: {
+    minWidth: 76,
+    textAlign: 'right',
+    fontSize: 17,
+    fontWeight: '800',
+    color: INK,
+  },
+  editLink: {
+    fontSize: 15,
+    fontWeight: '800',
+    color: PURPLE_DARK,
+  },
+  chips: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    gap: 8,
+    marginTop: 14,
+  },
+  chip: {
+    borderRadius: 999,
+    backgroundColor: PURPLE_TINT,
+    paddingVertical: 9,
+    paddingHorizontal: 14,
+  },
+  chipText: {
+    fontSize: 15,
+    fontWeight: '700',
+    color: INK,
+  },
+  noDishes: {
+    fontSize: 16,
+    color: MUTED,
+    marginTop: 14,
   },
   checklist: {
     marginTop: 12,
     gap: 4,
   },
-  hintText: {
-    fontSize: 12,
-    color: MUTED,
-    marginBottom: 4,
-  },
-  checklistRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 8,
-  },
-  checklistMain: {
-    flex: 1,
+  checkRow: {
     flexDirection: 'row',
     alignItems: 'center',
     gap: 12,
-    paddingVertical: 8,
-  },
-  itemTextGroup: {
-    flex: 1,
-  },
-  itemCrossed: {
-    textDecorationLine: 'line-through',
-    color: MUTED,
-  },
-  takenByText: {
-    fontSize: 12,
-    color: MUTED,
-  },
-  checkboxDisabled: {
-    borderColor: '#C8C8C8',
-    backgroundColor: PILL_GRAY,
-  },
-  shareChip: {
-    flexShrink: 0,
-    paddingVertical: 4,
-    paddingHorizontal: 10,
-    borderRadius: 12,
-    backgroundColor: PILL_GRAY,
-  },
-  shareChipActive: {
-    backgroundColor: PURPLE,
-  },
-  shareChipText: {
-    fontSize: 12,
-    fontWeight: '600',
-    color: MUTED,
-  },
-  shareChipTextActive: {
-    color: '#fff',
+    paddingVertical: 10,
   },
   checkbox: {
-    width: 22,
-    height: 22,
-    borderRadius: 4,
+    width: 24,
+    height: 24,
+    borderRadius: 6,
     borderWidth: 2,
-    borderColor: GREEN,
+    borderColor: PURPLE,
     alignItems: 'center',
     justifyContent: 'center',
   },
   checkboxChecked: {
-    backgroundColor: GREEN,
+    backgroundColor: PURPLE,
   },
-  itemName: {
-    fontSize: 15,
-    color: '#000',
+  checkName: {
+    flex: 1,
+    fontSize: 17,
+    color: INK,
   },
-  itemPrice: {
-    fontSize: 15,
-    fontWeight: '600',
-    color: '#000',
+  checkPrice: {
+    fontSize: 17,
+    fontWeight: '700',
+    color: INK,
   },
-  selectDishesPill: {
-    marginTop: 12,
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'space-between',
-    backgroundColor: PILL_GRAY,
-    borderRadius: 24,
-    paddingVertical: 12,
-    paddingHorizontal: 16,
-  },
-  selectDishesTextGroup: {
+  removeRow: {
     flexDirection: 'row',
     alignItems: 'center',
     gap: 8,
+    paddingTop: 12,
+    marginTop: 4,
+    borderTopWidth: 1,
+    borderTopColor: BORDER,
   },
-  selectDishesText: {
-    fontSize: 15,
-    color: MUTED,
-  },
-  selectedBadge: {
-    backgroundColor: PURPLE,
-    borderRadius: 12,
-    paddingVertical: 2,
-    paddingHorizontal: 8,
-  },
-  selectedBadgeText: {
-    fontSize: 12,
+  removeText: {
+    fontSize: 16,
     fontWeight: '700',
-    color: '#fff',
-  },
-  addPersonPill: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'center',
-    gap: 6,
-    backgroundColor: PILL_GRAY,
-    borderRadius: 24,
-    paddingVertical: 12,
-    boxShadow: '0px 2px 4px rgba(0, 0, 0, 0.1)',
-    elevation: 2,
-  },
-  addPersonText: {
-    fontSize: 15,
-    fontWeight: '600',
-    color: '#000',
+    color: DANGER,
   },
   footer: {
+    flexDirection: 'row',
+    gap: 14,
     paddingHorizontal: 20,
+    paddingTop: 16,
     paddingBottom: 24,
+    borderTopWidth: 1,
+    borderTopColor: BORDER,
   },
-  calculateButton: {
+  personButton: {
+    flex: 1,
+    flexDirection: 'row',
+    gap: 8,
+    borderRadius: 18,
+    borderWidth: 2,
+    borderColor: PURPLE,
+    backgroundColor: '#fff',
+    paddingVertical: 18,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  personButtonText: {
+    fontSize: 18,
+    fontWeight: '800',
+    color: PURPLE_DARK,
+  },
+  nextButton: {
+    flex: 1.6,
+    borderRadius: 18,
     backgroundColor: PURPLE,
-    borderRadius: 16,
-    borderWidth: 1,
-    borderColor: '#000',
     paddingVertical: 20,
     alignItems: 'center',
     justifyContent: 'center',
   },
-  calculateButtonDisabled: {
-    opacity: 0.5,
+  nextText: {
+    fontSize: 18,
+    fontWeight: '800',
+    color: INK,
   },
-  calculateButtonText: {
-    fontSize: 17,
-    fontWeight: '700',
-    color: '#fff',
+  pressed: {
+    opacity: 0.85,
+  },
+  disabled: {
+    opacity: 0.5,
   },
 });

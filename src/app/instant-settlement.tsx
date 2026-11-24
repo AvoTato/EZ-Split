@@ -21,23 +21,19 @@ import {
   getGroupSettlementSetup,
   getParsedReceipt,
   setParsedReceipt,
-  setSettlementSummarySession,
-  type Person,
-  type SettlementPerson,
 } from '../lib/receiptSession';
 
 const PURPLE = '#9B87F0';
-const PILL_GRAY = '#EFEFEF';
-const MUTED = '#8A8A8A';
-
-type SplitMode = 'equal' | 'separate';
+const PURPLE_DARK = '#5B3FD8';
+const INK = '#1A1530';
+const MUTED = '#6B6880';
+const BORDER = '#E6E3F0';
+const TRACK = '#EFECF8';
 
 export default function InstantSettlementScreen() {
   const router = useRouter();
   const [receipt, setReceipt] = useState<ParsedReceipt | null>(null);
-  const [splitMode, setSplitMode] = useState<SplitMode>('separate');
-  const [pax, setPax] = useState(2);
-  const [members, setMembers] = useState<Person[]>([]);
+  const [isGroup, setIsGroup] = useState(false);
   const [editing, setEditing] = useState(false);
 
   useEffect(() => {
@@ -46,17 +42,12 @@ export default function InstantSettlementScreen() {
       router.replace('/upload-receipt');
       return;
     }
-    const groupMembers = getGroupSettlementSetup()?.members ?? [];
-    if (groupMembers.length > 0) {
-      setMembers(groupMembers);
-      setPax(groupMembers.length);
-    }
+    setIsGroup((getGroupSettlementSetup()?.members ?? []).length > 0);
     setReceipt(stored);
   }, [router]);
 
   if (!receipt) return null;
 
-  const isGroup = members.length > 0;
   const warningCount = checkReceipt(receipt).filter((issue) => issue.severity === 'warning').length;
 
   // Edits are written straight back to the session so every later screen (and the
@@ -70,6 +61,10 @@ export default function InstantSettlementScreen() {
     });
   };
 
+  const handleContinue = () => {
+    router.push('/how-many-people');
+  };
+
   return (
     <SafeAreaView style={styles.safeArea}>
       <KeyboardAvoidingView
@@ -77,32 +72,33 @@ export default function InstantSettlementScreen() {
         behavior={Platform.OS === 'ios' ? 'padding' : undefined}
       >
         <View style={styles.header}>
-          <Pressable onPress={() => goBack(router)} hitSlop={12}>
-            <Ionicons name="chevron-back" size={26} color="#000" />
+          <Pressable
+            accessibilityRole="button"
+            accessibilityLabel="Go back"
+            onPress={() => goBack(router)}
+            hitSlop={12}
+          >
+            <Ionicons name="chevron-back" size={28} color={INK} />
           </Pressable>
-          <Text style={styles.headerTitle}>{isGroup ? 'Group Settlement' : 'Instant Settlement'}</Text>
+          <View style={styles.headerCopy}>
+            {!isGroup && <Text style={styles.stepLabel}>Instant split · Step 1 of 3</Text>}
+            <Text style={styles.headerTitle}>{isGroup ? 'Group Settlement' : 'Check your receipt'}</Text>
+          </View>
+          <Pressable
+            accessibilityRole="button"
+            accessibilityLabel="Edit receipt"
+            onPress={() => setEditing(true)}
+            style={styles.pencil}
+          >
+            <Ionicons name="pencil-outline" size={22} color={PURPLE_DARK} />
+          </Pressable>
+        </View>
+
+        <View style={styles.progressTrack}>
+          <View style={styles.progressFill} />
         </View>
 
         <ScrollView contentContainerStyle={styles.content} keyboardShouldPersistTaps="handled">
-          <View style={styles.segmentedControl}>
-            <Pressable
-              style={[styles.segment, splitMode === 'equal' && styles.segmentActive]}
-              onPress={() => setSplitMode('equal')}
-            >
-              <Text style={[styles.segmentText, splitMode === 'equal' && styles.segmentTextActive]}>
-                Split equally
-              </Text>
-            </Pressable>
-            <Pressable
-              style={[styles.segment, splitMode === 'separate' && styles.segmentActive]}
-              onPress={() => setSplitMode('separate')}
-            >
-              <Text style={[styles.segmentText, splitMode === 'separate' && styles.segmentTextActive]}>
-                Split separately
-              </Text>
-            </Pressable>
-          </View>
-
           {editing ? (
             <ReceiptEditor
               receipt={receipt}
@@ -116,62 +112,23 @@ export default function InstantSettlementScreen() {
               issueCount={warningCount}
             />
           )}
-
-          {splitMode === 'equal' && isGroup && (
-            <View style={styles.membersCard}>
-              <View style={styles.membersHeader}>
-                <Text style={styles.paxLabel}>Number of Pax:</Text>
-                <Text style={styles.paxCount}>{members.length}</Text>
-              </View>
-              <Text style={styles.membersNames}>{members.map((m) => m.name).join(', ')}</Text>
-            </View>
-          )}
-
-          {splitMode === 'equal' && !isGroup && (
-            <View style={styles.paxRow}>
-              <Text style={styles.paxLabel}>Number of Pax:</Text>
-              <Pressable
-                style={styles.paxButton}
-                onPress={() => setPax((p) => Math.max(1, p - 1))}
-                hitSlop={8}
-              >
-                <Ionicons name="remove" size={16} color={PURPLE} />
-              </Pressable>
-              <Text style={styles.paxCount}>{pax}</Text>
-              <Pressable style={styles.paxButton} onPress={() => setPax((p) => p + 1)} hitSlop={8}>
-                <Ionicons name="add" size={16} color={PURPLE} />
-              </Pressable>
-            </View>
-          )}
         </ScrollView>
 
         <View style={styles.footer}>
-          <Pressable
-            style={styles.continueButton}
-            onPress={() => {
-              if (editing) {
-                setEditing(false);
-              } else if (splitMode === 'separate') {
-                router.push('/who-had-what');
-              } else {
-                const totalForSplit = receipt.total ?? 0;
-                const amountPerPerson = totalForSplit / pax;
-                const settlementPeople: SettlementPerson[] = Array.from({ length: pax }, (_, index) => ({
-                  id: members[index]?.id ?? `e${index + 1}`,
-                  name: members[index]?.name ?? `Person ${index + 1}`,
-                  amount: amountPerPerson,
-                }));
-                setSettlementSummarySession({
-                  pax,
-                  people: settlementPeople,
-                  note: `Total split equally among ${pax} people.`,
-                });
-                router.push('/settlement-summary');
-              }
-            }}
-          >
-            <Text style={styles.continueButtonText}>{editing ? 'Done editing' : 'Continue'}</Text>
-          </Pressable>
+          {editing ? (
+            <Pressable style={styles.doneButton} onPress={() => setEditing(false)}>
+              <Text style={styles.doneButtonText}>Done editing</Text>
+            </Pressable>
+          ) : (
+            <View style={styles.footerRow}>
+              <Pressable style={styles.editButton} onPress={() => setEditing(true)}>
+                <Text style={styles.editButtonText}>Edit items</Text>
+              </Pressable>
+              <Pressable style={styles.doneButton} onPress={handleContinue}>
+                <Text style={styles.doneButtonText}>Looks good</Text>
+              </Pressable>
+            </View>
+          )}
         </View>
       </KeyboardAvoidingView>
     </SafeAreaView>
@@ -192,113 +149,90 @@ const styles = StyleSheet.create({
   header: {
     flexDirection: 'row',
     alignItems: 'center',
-    gap: 12,
+    gap: 14,
     paddingHorizontal: 20,
-    paddingVertical: 16,
+    paddingTop: 12,
+    paddingBottom: 14,
+  },
+  headerCopy: {
+    flex: 1,
+  },
+  stepLabel: {
+    fontSize: 14,
+    fontWeight: '700',
+    color: MUTED,
   },
   headerTitle: {
-    fontSize: 20,
-    fontWeight: '700',
-    color: '#000',
+    fontSize: 28,
+    fontWeight: '800',
+    color: INK,
+    letterSpacing: -0.6,
+  },
+  pencil: {
+    width: 48,
+    height: 48,
+    borderRadius: 24,
+    borderWidth: 1,
+    borderColor: BORDER,
+    backgroundColor: '#fff',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  progressTrack: {
+    height: 8,
+    borderRadius: 4,
+    backgroundColor: TRACK,
+    overflow: 'hidden',
+    marginHorizontal: 20,
+    marginBottom: 16,
+  },
+  progressFill: {
+    width: '33.333%',
+    height: '100%',
+    borderRadius: 4,
+    backgroundColor: PURPLE,
   },
   content: {
     paddingHorizontal: 20,
-    paddingTop: 8,
     paddingBottom: 24,
-  },
-  segmentedControl: {
-    flexDirection: 'row',
-    backgroundColor: PILL_GRAY,
-    borderRadius: 24,
-    padding: 4,
-    marginBottom: 20,
-  },
-  segment: {
-    flex: 1,
-    borderRadius: 20,
-    paddingVertical: 10,
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  segmentActive: {
-    backgroundColor: PURPLE,
-  },
-  segmentText: {
-    fontSize: 14,
-    fontWeight: '600',
-    color: '#000',
-  },
-  segmentTextActive: {
-    color: '#fff',
-    fontWeight: '700',
-  },
-  paxRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 12,
-    backgroundColor: '#fff',
-    borderRadius: 24,
-    paddingVertical: 12,
-    paddingHorizontal: 20,
-    marginTop: 20,
-    boxShadow: '0px 2px 8px rgba(0, 0, 0, 0.08)',
-    elevation: 3,
-  },
-  membersCard: {
-    backgroundColor: '#fff',
-    borderRadius: 24,
-    paddingVertical: 12,
-    paddingHorizontal: 20,
-    marginTop: 20,
-    gap: 6,
-    boxShadow: '0px 2px 8px rgba(0, 0, 0, 0.08)',
-    elevation: 3,
-  },
-  membersHeader: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'space-between',
-  },
-  membersNames: {
-    fontSize: 13,
-    color: MUTED,
-  },
-  paxLabel: {
-    fontSize: 15,
-    color: '#000',
-    marginRight: 'auto',
-  },
-  paxButton: {
-    width: 28,
-    height: 28,
-    borderRadius: 14,
-    backgroundColor: PILL_GRAY,
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  paxCount: {
-    fontSize: 15,
-    fontWeight: '700',
-    color: '#000',
-    minWidth: 16,
-    textAlign: 'center',
   },
   footer: {
     paddingHorizontal: 20,
+    paddingTop: 16,
     paddingBottom: 24,
+    borderTopWidth: 1,
+    borderTopColor: BORDER,
   },
-  continueButton: {
+  footerRow: {
+    flexDirection: 'row',
+    gap: 14,
+  },
+  editButton: {
+    flex: 1,
+    borderRadius: 18,
+    borderWidth: 2,
+    borderColor: PURPLE,
+    backgroundColor: '#fff',
+    paddingVertical: 18,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  editButtonText: {
+    fontSize: 18,
+    fontWeight: '800',
+    color: PURPLE_DARK,
+  },
+  doneButton: {
+    flex: 1.7,
     backgroundColor: PURPLE,
-    borderRadius: 16,
-    borderWidth: 1,
-    borderColor: '#000',
+    borderRadius: 18,
     paddingVertical: 20,
     alignItems: 'center',
     justifyContent: 'center',
   },
-  continueButtonText: {
-    fontSize: 17,
-    fontWeight: '700',
-    color: '#fff',
+  doneButtonText: {
+    fontSize: 18,
+    fontWeight: '800',
+    color: INK,
   },
 });

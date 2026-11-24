@@ -17,9 +17,13 @@ import {
 import { computeSettlement, itemShareCost, totalSharesByItem } from '../lib/settlement';
 
 const PURPLE = '#9B87F0';
-const PILL_GRAY = '#EFEFEF';
-const GREEN = '#2E7D32';
-const MUTED = '#8A8A8A';
+const PURPLE_DARK = '#5B3FD8';
+const PURPLE_TINT = '#F0ECFD';
+const INK = '#1A1530';
+const MUTED = '#6B6880';
+const BORDER = '#E6E3F0';
+const TRACK = '#EFECF8';
+const AVATAR_COLORS = ['#5B3FD8', '#0F766E', '#B45309', '#C2185B', '#0369A1', '#7C3AED'];
 
 function money(value: number) {
   return `RM ${value.toFixed(2)}`;
@@ -87,73 +91,99 @@ export default function ItemQuantitiesScreen() {
     router.push('/settlement-summary');
   };
 
+  const isGroup = Boolean(getGroupSettlementSetup());
+
   return (
     <SafeAreaView style={styles.safeArea}>
       <View style={styles.page}>
         <View style={styles.header}>
-          <Pressable onPress={() => goBack(router)} hitSlop={12}>
-            <Ionicons name="chevron-back" size={26} color="#000" />
+          <Pressable
+            accessibilityRole="button"
+            accessibilityLabel="Go back"
+            onPress={() => goBack(router)}
+            hitSlop={12}
+          >
+            <Ionicons name="chevron-back" size={28} color={INK} />
           </Pressable>
           <View>
-            <Text style={styles.headerEyebrow}>
-              {getGroupSettlementSetup() ? 'Group Settlement' : 'Instant Settlement'}
-            </Text>
+            <Text style={styles.stepLabel}>{isGroup ? 'Group settlement' : 'Step 2 of 3'}</Text>
             <Text style={styles.headerTitle}>How many did they have?</Text>
           </View>
         </View>
 
+        <View style={styles.progressTrack}>
+          <View style={styles.progressFill} />
+        </View>
+
         <ScrollView contentContainerStyle={styles.content}>
+          <View style={styles.banner}>
+            <Ionicons name="information-circle-outline" size={26} color={PURPLE_DARK} />
+            <Text style={styles.bannerText}>
+              Shared items are split by portion. Service charge and tax follow what each person had.
+            </Text>
+          </View>
+
           {people.map((person, index) => {
             const personAssignments = getPersonAssignments(person.id);
+            const label = person.name.trim() || `Person ${index + 1}`;
+            const subtotal = personAssignments.reduce(
+              (sum, a) => sum + getItemLiveCost(a.itemIndex, a.shares),
+              0
+            );
 
             return (
               <View key={person.id} style={styles.card}>
-                <Text style={styles.personLabel}>{person.name.trim() || `Person ${index + 1}`}</Text>
+                <View style={styles.cardHeader}>
+                  <View style={[styles.avatar, { backgroundColor: AVATAR_COLORS[index % AVATAR_COLORS.length] }]}>
+                    <Text style={styles.avatarText}>{person.name.trim().charAt(0).toUpperCase() || index + 1}</Text>
+                  </View>
+                  <Text style={styles.personLabel} numberOfLines={1}>
+                    {label}
+                  </Text>
+                  <View style={styles.subtotalBlock}>
+                    <Text style={styles.subtotalLabel}>Subtotal</Text>
+                    <Text style={styles.subtotalValue}>{money(subtotal)}</Text>
+                  </View>
+                </View>
 
                 {personAssignments.length === 0 ? (
                   <Text style={styles.noItemsText}>No items selected</Text>
                 ) : (
                   <View style={styles.selectedList}>
-                    {personAssignments.map((a) => {
+                    {personAssignments.map((a, rowIndex) => {
                       const item = receipt.items[a.itemIndex];
                       return (
-                        <View key={a.itemIndex} style={styles.selectedRow}>
-                          <Ionicons name="checkmark-circle" size={18} color={GREEN} />
-                          <Text style={styles.itemName}>{item.name}</Text>
-                          <Text style={styles.itemPrice}>
-                            {money(getItemLiveCost(a.itemIndex, a.shares))}
-                          </Text>
+                        <View key={a.itemIndex} style={[styles.selectedRow, rowIndex > 0 && styles.selectedRowDivided]}>
+                          <View style={styles.itemCopy}>
+                            <Text style={styles.itemName}>{item.name}</Text>
+                            <Text style={styles.itemEach}>
+                              {money(itemShareCost(item, 1, totalShares[a.itemIndex]))} each
+                            </Text>
+                          </View>
                           <View style={styles.stepper}>
                             <Pressable
-                              style={styles.stepperButton}
+                              accessibilityRole="button"
+                              accessibilityLabel={`Fewer ${item.name} for ${label}`}
+                              style={styles.minus}
                               onPress={() => decrementShare(person.id, a.itemIndex)}
-                              hitSlop={8}
+                              hitSlop={6}
                             >
-                              <Ionicons name="remove" size={14} color={PURPLE} />
+                              <Ionicons name="remove" size={20} color={INK} />
                             </Pressable>
                             <Text style={styles.stepperCount}>{a.shares}</Text>
                             <Pressable
-                              style={styles.stepperButton}
+                              accessibilityRole="button"
+                              accessibilityLabel={`More ${item.name} for ${label}`}
+                              style={styles.plus}
                               onPress={() => incrementShare(person.id, a.itemIndex)}
-                              hitSlop={8}
+                              hitSlop={6}
                             >
-                              <Ionicons name="add" size={14} color={PURPLE} />
+                              <Ionicons name="add" size={20} color={INK} />
                             </Pressable>
                           </View>
                         </View>
                       );
                     })}
-                    <View style={styles.subtotalRow}>
-                      <Text style={styles.subtotalLabel}>Subtotal</Text>
-                      <Text style={styles.subtotalValue}>
-                        {money(
-                          personAssignments.reduce(
-                            (sum, a) => sum + getItemLiveCost(a.itemIndex, a.shares),
-                            0
-                          )
-                        )}
-                      </Text>
-                    </View>
                   </View>
                 )}
               </View>
@@ -162,7 +192,11 @@ export default function ItemQuantitiesScreen() {
         </ScrollView>
 
         <View style={styles.footer}>
-          <Pressable style={styles.calculateButton} onPress={handleCalculate}>
+          <Pressable
+            accessibilityRole="button"
+            style={({ pressed }) => [styles.calculateButton, pressed && styles.pressed]}
+            onPress={handleCalculate}
+          >
             <Text style={styles.calculateButtonText}>Calculate</Text>
           </Pressable>
         </View>
@@ -185,116 +219,182 @@ const styles = StyleSheet.create({
   header: {
     flexDirection: 'row',
     alignItems: 'center',
-    gap: 12,
+    gap: 14,
     paddingHorizontal: 20,
-    paddingVertical: 16,
+    paddingTop: 12,
+    paddingBottom: 14,
   },
-  headerEyebrow: {
-    fontSize: 13,
-    fontWeight: '600',
+  stepLabel: {
+    fontSize: 14,
+    fontWeight: '700',
     color: MUTED,
   },
   headerTitle: {
-    fontSize: 20,
-    fontWeight: '700',
-    color: '#000',
+    fontSize: 28,
+    fontWeight: '800',
+    color: INK,
+    letterSpacing: -0.6,
+  },
+  progressTrack: {
+    height: 8,
+    borderRadius: 4,
+    backgroundColor: TRACK,
+    overflow: 'hidden',
+    marginHorizontal: 20,
+    marginBottom: 16,
+  },
+  progressFill: {
+    width: '66.666%',
+    height: '100%',
+    borderRadius: 4,
+    backgroundColor: PURPLE,
   },
   content: {
     paddingHorizontal: 20,
-    paddingTop: 8,
     paddingBottom: 24,
     gap: 16,
   },
+  banner: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 14,
+    backgroundColor: PURPLE_TINT,
+    borderRadius: 20,
+    paddingVertical: 16,
+    paddingHorizontal: 18,
+  },
+  bannerText: {
+    flex: 1,
+    fontSize: 17,
+    lineHeight: 24,
+    color: INK,
+  },
   card: {
     backgroundColor: '#fff',
-    borderRadius: 16,
-    padding: 20,
-    boxShadow: '0px 2px 8px rgba(0, 0, 0, 0.08)',
-    elevation: 3,
+    borderRadius: 28,
+    borderWidth: 1,
+    borderColor: BORDER,
+    padding: 16,
+  },
+  cardHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 12,
+  },
+  avatar: {
+    width: 40,
+    height: 40,
+    borderRadius: 20,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  avatarText: {
+    fontSize: 17,
+    fontWeight: '800',
+    color: '#fff',
   },
   personLabel: {
-    fontSize: 16,
+    flex: 1,
+    fontSize: 22,
+    fontWeight: '800',
+    color: INK,
+    letterSpacing: -0.4,
+  },
+  subtotalBlock: {
+    alignItems: 'flex-end',
+  },
+  subtotalLabel: {
+    fontSize: 14,
     fontWeight: '700',
-    color: '#000',
+    color: MUTED,
+  },
+  subtotalValue: {
+    fontSize: 20,
+    fontWeight: '800',
+    color: INK,
   },
   noItemsText: {
-    fontSize: 14,
+    fontSize: 16,
     color: MUTED,
-    marginTop: 8,
+    marginTop: 12,
   },
   selectedList: {
-    marginTop: 12,
-    gap: 12,
+    marginTop: 10,
   },
   selectedRow: {
     flexDirection: 'row',
     alignItems: 'center',
+    justifyContent: 'space-between',
     gap: 10,
+    paddingVertical: 12,
+  },
+  selectedRowDivided: {
+    borderTopWidth: 1,
+    borderTopColor: BORDER,
+  },
+  itemCopy: {
+    flex: 1,
   },
   itemName: {
-    flex: 1,
-    fontSize: 15,
-    color: '#000',
+    fontSize: 18,
+    fontWeight: '800',
+    color: INK,
+    letterSpacing: -0.3,
   },
-  itemPrice: {
+  itemEach: {
     fontSize: 15,
-    fontWeight: '600',
-    color: '#000',
+    color: MUTED,
   },
   stepper: {
     flexDirection: 'row',
     alignItems: 'center',
-    gap: 8,
+    gap: 12,
   },
-  stepperButton: {
-    width: 28,
-    height: 28,
-    borderRadius: 14,
-    backgroundColor: PILL_GRAY,
+  minus: {
+    width: 34,
+    height: 34,
+    borderRadius: 17,
+    borderWidth: 1,
+    borderColor: BORDER,
+    backgroundColor: '#fff',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  plus: {
+    width: 34,
+    height: 34,
+    borderRadius: 17,
+    backgroundColor: PURPLE,
     alignItems: 'center',
     justifyContent: 'center',
   },
   stepperCount: {
-    fontSize: 15,
-    fontWeight: '700',
-    color: '#000',
-    minWidth: 16,
+    fontSize: 20,
+    fontWeight: '800',
+    color: INK,
+    minWidth: 14,
     textAlign: 'center',
-  },
-  subtotalRow: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'center',
-    marginTop: 8,
-    paddingTop: 12,
-    borderTopWidth: 1,
-    borderTopColor: '#E5E5E5',
-  },
-  subtotalLabel: {
-    fontSize: 14,
-    color: MUTED,
-  },
-  subtotalValue: {
-    fontSize: 15,
-    fontWeight: '700',
-    color: '#000',
   },
   footer: {
     paddingHorizontal: 20,
+    paddingTop: 16,
     paddingBottom: 24,
+    borderTopWidth: 1,
+    borderTopColor: BORDER,
   },
   calculateButton: {
     backgroundColor: PURPLE,
-    borderRadius: 16,
-    borderWidth: 1,
-    borderColor: '#000',
+    borderRadius: 18,
     paddingVertical: 20,
     alignItems: 'center',
     justifyContent: 'center',
   },
   calculateButtonText: {
-    fontSize: 17,
-    fontWeight: '700',
-    color: '#fff',
+    fontSize: 18,
+    fontWeight: '800',
+    color: INK,
+  },
+  pressed: {
+    opacity: 0.85,
   },
 });
