@@ -1,11 +1,12 @@
 import { Ionicons } from '@expo/vector-icons';
 import { useRouter } from 'expo-router';
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { Pressable, ScrollView, StyleSheet, Text, TextInput, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
 import { money, pctOf } from '../lib/format';
 import { goBack } from '../lib/navigation';
+import { groupStep } from '../lib/flowSteps';
 import type { ParsedReceipt } from '../lib/parseReceipt';
 import {
   getGroupSettlementSetup,
@@ -16,17 +17,9 @@ import {
   type Person,
 } from '../lib/receiptSession';
 import { computeSettlement, totalSharesByItem } from '../lib/settlement';
+import { useColors, type Colors } from '../lib/theme';
+import { useT } from '../lib/i18n';
 
-const PURPLE = '#9B87F0';
-const PURPLE_DARK = '#5B3FD8';
-const PURPLE_TINT = '#F0ECFD';
-const INK = '#1A1530';
-const MUTED = '#6B6880';
-const BORDER = '#E6E3F0';
-const TRACK = '#EFECF8';
-const PANEL = '#F8F7FB';
-const AMBER = '#9A4A06';
-const DANGER = '#B42318';
 const AVATAR_COLORS = ['#5B3FD8', '#0F766E', '#B45309', '#C2185B', '#0369A1', '#7C3AED'];
 
 type View_ = 'dish' | 'person';
@@ -63,6 +56,10 @@ function initialOf(name: string, index: number) {
 const colorOf = (index: number) => AVATAR_COLORS[index % AVATAR_COLORS.length];
 
 export default function WhoHadWhatScreen() {
+  const t = useT();
+  const colors = useColors();
+  const { PURPLE_DARK, INK, MUTED, AMBER, RED } = colors;
+  const styles = useMemo(() => makeStyles(colors), [colors]);
   const router = useRouter();
   const [receipt, setReceipt] = useState<ParsedReceipt | null>(null);
   const [people, setPeople] = useState<Person[]>([]);
@@ -146,9 +143,9 @@ export default function WhoHadWhatScreen() {
   const servicePct = pctOf(receipt.serviceCharge, receipt.subtotal);
   const taxPct = pctOf(receipt.tax, receipt.subtotal);
   const subtitleParts = [
-    receipt.subtotal !== null ? `Subtotal ${money(receipt.subtotal)}` : null,
-    receipt.serviceCharge !== null ? `+${servicePct !== null ? `${servicePct}% ` : ''}service` : null,
-    receipt.tax !== null ? `+${taxPct !== null ? `${taxPct}% ` : ''}SST` : null,
+    receipt.subtotal !== null ? `${t('Subtotal')} ${money(receipt.subtotal)}` : null,
+    receipt.serviceCharge !== null ? `+${servicePct !== null ? `${servicePct}% ` : ''}${t('service')}` : null,
+    receipt.tax !== null ? `+${taxPct !== null ? `${taxPct}% ` : ''}${t('SST')}` : null,
   ].filter((part): part is string => part !== null);
 
 
@@ -158,20 +155,20 @@ export default function WhoHadWhatScreen() {
         <View style={styles.header}>
           <Pressable
             accessibilityRole="button"
-            accessibilityLabel="Go back"
+            accessibilityLabel={t('Go back')}
             onPress={() => goBack(router)}
             hitSlop={12}
           >
             <Ionicons name="chevron-back" size={28} color={INK} />
           </Pressable>
           <View>
-            <Text style={styles.stepLabel}>{isGroup ? 'Group settlement' : 'Instant split · Step 2 of 3'}</Text>
-            <Text style={styles.title}>Who had what?</Text>
+            <Text style={styles.stepLabel}>{isGroup ? groupStep(3).label : t('Instant split · Step {n} of 3', { n: 2 })}</Text>
+            <Text style={styles.title}>{t('Who had what?')}</Text>
           </View>
         </View>
 
         <View style={styles.progressTrack}>
-          <View style={styles.progressFill} />
+          <View style={[styles.progressFill, isGroup && { width: groupStep(3).fill }]} />
         </View>
 
         <ScrollView contentContainerStyle={styles.content} keyboardShouldPersistTaps="handled">
@@ -180,7 +177,7 @@ export default function WhoHadWhatScreen() {
               <Ionicons name="receipt-outline" size={26} color={PURPLE_DARK} />
             </View>
             <View style={styles.receiptCopy}>
-              <Text style={styles.receiptTitle}>Receipt</Text>
+              <Text style={styles.receiptTitle}>{t('Receipt')}</Text>
               {subtitleParts.length > 0 && <Text style={styles.receiptSub}>{subtitleParts.join(' · ')}</Text>}
             </View>
             {receipt.total !== null && <Text style={styles.receiptTotal}>{money(receipt.total)}</Text>}
@@ -192,21 +189,21 @@ export default function WhoHadWhatScreen() {
               style={[styles.segment, view === 'dish' && styles.segmentActive]}
               onPress={() => setView('dish')}
             >
-              <Text style={[styles.segmentText, view === 'dish' && styles.segmentTextActive]}>By dish</Text>
+              <Text style={[styles.segmentText, view === 'dish' && styles.segmentTextActive]}>{t('By dish')}</Text>
             </Pressable>
             <Pressable
               accessibilityRole="button"
               style={[styles.segment, view === 'person' && styles.segmentActive]}
               onPress={() => setView('person')}
             >
-              <Text style={[styles.segmentText, view === 'person' && styles.segmentTextActive]}>By person</Text>
+              <Text style={[styles.segmentText, view === 'person' && styles.segmentTextActive]}>{t('By person')}</Text>
             </Pressable>
           </View>
 
           <View style={styles.statusRow}>
             <Ionicons name="warning-outline" size={24} color={AMBER} />
             <Text style={styles.statusText}>
-              {`${assignedCount} of ${receipt.items.length} dishes assigned · tap a name to add or remove`}
+              {t('{n} of {total} dishes assigned · tap a name to add or remove', { n: assignedCount, total: receipt.items.length })}
             </Text>
           </View>
 
@@ -221,7 +218,7 @@ export default function WhoHadWhatScreen() {
                       <Text style={styles.dishName}>{item.name}</Text>
                       <Text style={styles.dishSub}>
                         {item.qty} × {unit.toFixed(2)}
-                        {ways > 1 ? ` · split ${ways} ways` : ''}
+                        {ways > 1 ? ` · ${t('split {n} ways', { n: ways })}` : ''}
                       </Text>
                     </View>
                     <Text style={styles.dishPrice}>{money(item.price)}</Text>
@@ -233,7 +230,7 @@ export default function WhoHadWhatScreen() {
                         <Pressable
                           key={person.id}
                           accessibilityRole="button"
-                          accessibilityLabel={`${person.name.trim() || `Person ${personIndex + 1}`} had ${item.name}`}
+                          accessibilityLabel={t('{name} had {item}', { name: person.name.trim() || t('Person {n}', { n: personIndex + 1 }), item: item.name })}
                           accessibilityState={{ selected: on }}
                           onPress={() => toggleItemForPerson(person.id, itemIndex)}
                           style={[styles.circle, on ? { backgroundColor: colorOf(personIndex) } : styles.circleOff]}
@@ -264,7 +261,7 @@ export default function WhoHadWhatScreen() {
                       style={styles.personName}
                       value={person.name}
                       onChangeText={(text) => updatePersonName(person.id, text)}
-                      placeholder={`Person ${personIndex + 1}`}
+                      placeholder={t('Person {n}', { n: personIndex + 1 })}
                       placeholderTextColor={MUTED}
                       editable={!isGroup}
                       numberOfLines={1}
@@ -274,12 +271,12 @@ export default function WhoHadWhatScreen() {
                     </Text>
                     <Pressable
                       accessibilityRole="button"
-                      accessibilityLabel={`${expanded ? 'Done editing' : 'Edit'} dishes for ${person.name.trim() || `Person ${personIndex + 1}`}`}
+                      accessibilityLabel={expanded ? t('Done editing dishes for {name}', { name: person.name.trim() || t('Person {n}', { n: personIndex + 1 }) }) : t('Edit dishes for {name}', { name: person.name.trim() || t('Person {n}', { n: personIndex + 1 }) })}
                       onPress={() => toggleExpanded(person.id)}
                       hitSlop={8}
                     >
                       <Text style={styles.editLink} numberOfLines={1}>
-                        {expanded ? 'Done' : 'Edit dishes'}
+                        {expanded ? t('Done') : t('Edit dishes')}
                       </Text>
                     </Pressable>
                   </View>
@@ -307,12 +304,12 @@ export default function WhoHadWhatScreen() {
                       {!isGroup && people.length > 1 && (
                         <Pressable
                           accessibilityRole="button"
-                          accessibilityLabel={`Remove ${person.name.trim() || `Person ${personIndex + 1}`}`}
+                          accessibilityLabel={t('Remove {name}', { name: person.name.trim() || t('Person {n}', { n: personIndex + 1 }) })}
                           onPress={() => removePerson(person.id)}
                           style={styles.removeRow}
                         >
-                          <Ionicons name="trash-outline" size={18} color={DANGER} />
-                          <Text style={styles.removeText}>Remove person</Text>
+                          <Ionicons name="trash-outline" size={18} color={RED} />
+                          <Text style={styles.removeText}>{t('Remove person')}</Text>
                         </Pressable>
                       )}
                     </View>
@@ -333,7 +330,7 @@ export default function WhoHadWhatScreen() {
                       })}
                     </View>
                   ) : (
-                    <Text style={styles.noDishes}>No dishes yet</Text>
+                    <Text style={styles.noDishes}>{t('No dishes yet')}</Text>
                   )}
                 </View>
               );
@@ -347,7 +344,7 @@ export default function WhoHadWhatScreen() {
             onPress={addPerson}
           >
             <Ionicons name="add" size={24} color={PURPLE_DARK} />
-            <Text style={styles.personButtonText}>Person</Text>
+            <Text style={styles.personButtonText}>{t('Person')}</Text>
           </Pressable>
           <Pressable
             accessibilityRole="button"
@@ -359,7 +356,7 @@ export default function WhoHadWhatScreen() {
             onPress={handleNext}
             disabled={people.length === 0}
           >
-            <Text style={styles.nextText}>Next · Review split</Text>
+            <Text style={styles.nextText}>{t('Next · Review split')}</Text>
           </Pressable>
         </View>
       </View>
@@ -367,10 +364,11 @@ export default function WhoHadWhatScreen() {
   );
 }
 
-const styles = StyleSheet.create({
+const makeStyles = ({ PURPLE_DARK, PURPLE_TINT, PURPLE, ON_PURPLE, INK, MUTED, BORDER, TRACK, PANEL, BG, SURFACE, AMBER, RED  }: Colors) =>
+  StyleSheet.create({
   safeArea: {
     flex: 1,
-    backgroundColor: '#fff',
+    backgroundColor: BG,
     alignItems: 'center',
   },
   page: {
@@ -468,7 +466,7 @@ const styles = StyleSheet.create({
     borderColor: 'transparent',
   },
   segmentActive: {
-    backgroundColor: '#fff',
+    backgroundColor: SURFACE,
     borderColor: BORDER,
   },
   segmentText: {
@@ -491,7 +489,7 @@ const styles = StyleSheet.create({
     color: AMBER,
   },
   card: {
-    backgroundColor: '#fff',
+    backgroundColor: SURFACE,
     borderRadius: 24,
     borderWidth: 1,
     borderColor: BORDER,
@@ -539,8 +537,8 @@ const styles = StyleSheet.create({
   circleOff: {
     borderWidth: 2,
     borderStyle: 'dashed',
-    borderColor: '#C9C5D8',
-    backgroundColor: '#fff',
+    borderColor: MUTED,
+    backgroundColor: SURFACE,
   },
   circleText: {
     fontSize: 20,
@@ -655,7 +653,7 @@ const styles = StyleSheet.create({
   removeText: {
     fontSize: 16,
     fontWeight: '700',
-    color: DANGER,
+    color: RED,
   },
   footer: {
     flexDirection: 'row',
@@ -673,7 +671,7 @@ const styles = StyleSheet.create({
     borderRadius: 18,
     borderWidth: 2,
     borderColor: PURPLE,
-    backgroundColor: '#fff',
+    backgroundColor: SURFACE,
     paddingVertical: 18,
     alignItems: 'center',
     justifyContent: 'center',
@@ -694,7 +692,7 @@ const styles = StyleSheet.create({
   nextText: {
     fontSize: 18,
     fontWeight: '800',
-    color: INK,
+    color: ON_PURPLE,
   },
   pressed: {
     opacity: 0.85,

@@ -17,6 +17,7 @@ export type Insights = {
   thisMonthTotal: number;
   thisMonthCount: number;
   averageBill: number;
+  totalSpent: number;
   months: MonthTotal[];
   biggestBill: { name: string; total: number } | null;
   topPayer: { name: string; count: number } | null;
@@ -94,6 +95,7 @@ export function computeInsights(
     billCount: settlements.length,
     thisMonthTotal: thisMonthCents / 100,
     thisMonthCount,
+    totalSpent: allCents / 100,
     averageBill: settlements.length === 0 ? 0 : Math.round(allCents / settlements.length) / 100,
     months,
     biggestBill,

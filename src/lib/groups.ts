@@ -80,6 +80,14 @@ export function setGroups(list: Group[]) {
   persist();
 }
 
+export function clearGroupsLocal() {
+  revokeShares(groups.flatMap((group) => group.settlements ?? []));
+  groups = [];
+  nextId = 1;
+  nextSettlementId = 1;
+  AsyncStorage.setItem(STORAGE_KEY, JSON.stringify(groups)).catch(() => {});
+}
+
 export function addGroup(input: Omit<Group, 'id'>) {
   const group: Group = { id: String(nextId++), ...input };
   groups = [...groups, group];

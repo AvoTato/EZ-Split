@@ -1,6 +1,6 @@
 import { Ionicons } from '@expo/vector-icons';
 import { Stack, useFocusEffect, useRouter } from 'expo-router';
-import { useCallback, useState } from 'react';
+import { useCallback, useMemo, useState } from 'react';
 import {
   KeyboardAvoidingView,
   Modal,
@@ -14,10 +14,28 @@ import {
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
+import { groupStatus } from '../../lib/debts';
+import { money } from '../../lib/format';
 import { getGroups, removeGroup as deleteGroup, setGroups as storeGroups, type Group } from '../../lib/groups';
 import { setGroupSettlementSetup } from '../../lib/receiptSession';
+import { useColors, type Colors } from '../../lib/theme';
+import { useT, localeTag } from '../../lib/i18n';
+
+const AVATAR_COLORS = ['#5B3FD8', '#0F766E', '#B45309', '#C2185B', '#0369A1', '#7C3AED'];
+
+const initialOf = (name: string, index: number) => name.trim().charAt(0).toUpperCase() || String(index + 1);
+
+function lastSplitLabel(group: Group) {
+  const times = (group.settlements ?? []).map((settlement) => settlement.createdAt);
+  if (times.length === 0) return null;
+  return new Date(Math.max(...times)).toLocaleDateString(localeTag(), { day: 'numeric', month: 'short' });
+}
 
 export default function GroupsScreen() {
+  const t = useT();
+  const colors = useColors();
+  const { PURPLE_DARK, MUTED, PANEL, GREEN_TINT, GREEN, AMBER_TINT, AMBER } = colors;
+  const styles = useMemo(() => makeStyles(colors), [colors]);
   const router = useRouter();
   const [groups, setGroups] = useState<Group[]>(getGroups());
 
@@ -70,41 +88,79 @@ export default function GroupsScreen() {
     router.push({ pathname: '/receipt-history', params: { groupId: group.id } });
   };
 
+  const renderAvatars = (group: Group) => {
+    const members = group.members ?? [];
+    const overflow = members.length > 4;
+    const shown = overflow ? members.slice(0, 3) : members;
+    return (
+      <View style={styles.avatars}>
+        {shown.map((member, index) => (
+          <View
+            key={member.id}
+            style={[styles.avatar, index > 0 && styles.avatarOverlap, { backgroundColor: AVATAR_COLORS[index % AVATAR_COLORS.length] }]}
+          >
+            <Text style={styles.avatarText}>{initialOf(member.name, index)}</Text>
+          </View>
+        ))}
+        {overflow && (
+          <View style={[styles.avatar, styles.avatarOverlap, { backgroundColor: MUTED }]}>
+            <Text style={styles.avatarText}>+{members.length - 3}</Text>
+          </View>
+        )}
+      </View>
+    );
+  };
+
+  const renderStatus = (group: Group) => {
+    const status = groupStatus(group.settlements ?? []);
+    if (status.kind === 'none') {
+      return (
+        <View style={[styles.pill, { backgroundColor: PANEL }]}>
+          <View style={[styles.pillDot, { backgroundColor: MUTED }]} />
+          <Text style={[styles.pillText, { color: MUTED }]}>{t('No splits yet')}</Text>
+        </View>
+      );
+    }
+    if (status.kind === 'settled') {
+      return (
+        <View style={[styles.pill, { backgroundColor: GREEN_TINT }]}>
+          <View style={[styles.pillDot, { backgroundColor: GREEN }]} />
+          <Text style={[styles.pillText, { color: GREEN }]}>{t('All settled')}</Text>
+        </View>
+      );
+    }
+    return (
+      <View style={[styles.pill, { backgroundColor: AMBER_TINT }]}>
+        <View style={[styles.pillDot, { backgroundColor: AMBER }]} />
+        <Text style={[styles.pillText, { color: AMBER }]}>
+          {status.kind === 'owed' ? t('You are owed {amount}', { amount: money(status.amount) }) : t('You owe {amount}', { amount: money(status.amount) })}
+        </Text>
+      </View>
+    );
+  };
+
   return (
     <SafeAreaView style={styles.safeArea} edges={['top', 'left', 'right']}>
       <Stack.Screen options={{ headerShown: false }} />
       <View style={styles.page}>
         <View style={styles.header}>
+          <Text style={styles.headerTitle} numberOfLines={1}>{t('Groups')}</Text>
           <Pressable
             accessibilityRole="button"
-            accessibilityLabel="Go back"
-            onPress={() => router.canGoBack() ? router.back() : router.replace('/')}
-            style={({ pressed }) => [styles.backButton, pressed && styles.pressed]}
-          >
-            <View style={styles.backIcon}>
-              <Ionicons name="chevron-back" size={24} color="#191919" />
-              <Ionicons name="chevron-back" size={24} color="#191919" style={styles.secondChevron} />
-            </View>
-          </Pressable>
-          <Text style={styles.headerTitle} numberOfLines={1} adjustsFontSizeToFit>
-            Manage Groups
-          </Text>
-          <Pressable
-            accessibilityRole="button"
-            accessibilityLabel="Backup and restore"
+            accessibilityLabel={t('Backup and restore')}
             onPress={() => router.push('/backup')}
-            style={({ pressed }) => [styles.editButton, pressed && styles.pressed]}
+            style={({ pressed }) => [styles.roundButton, pressed && styles.pressed]}
           >
-            <Ionicons name="cloud-upload-outline" size={26} color="#9855FF" />
+            <Ionicons name="cloud-outline" size={26} color={PURPLE_DARK} />
           </Pressable>
           <Pressable
             accessibilityRole="button"
-            accessibilityLabel={isEditing ? 'Finish editing groups' : 'Edit groups'}
+            accessibilityLabel={isEditing ? t('Finish editing groups') : t('Edit groups')}
             accessibilityState={{ selected: isEditing }}
             onPress={() => setIsEditing((current) => !current)}
-            style={({ pressed }) => [styles.editButton, pressed && styles.pressed]}
+            style={({ pressed }) => [styles.roundButton, pressed && styles.pressed]}
           >
-            <Ionicons name={isEditing ? 'checkmark-outline' : 'pencil-outline'} size={26} color="#9855FF" />
+            <Ionicons name={isEditing ? 'checkmark-outline' : 'pencil-outline'} size={24} color={PURPLE_DARK} />
           </Pressable>
         </View>
 
@@ -115,111 +171,131 @@ export default function GroupsScreen() {
           showsVerticalScrollIndicator={false}
         >
           <View style={styles.searchBar}>
-            <Ionicons name="search-outline" size={22} color="#75717F" />
+            <Ionicons name="search-outline" size={24} color={MUTED} />
             <TextInput
-              accessibilityLabel="Search groups"
+              accessibilityLabel={t('Search groups')}
               style={styles.searchInput}
               value={search}
               onChangeText={setSearch}
-              placeholder="Search groups"
-              placeholderTextColor="#75717F"
+              placeholder={t('Search groups')}
+              placeholderTextColor={MUTED}
               autoCapitalize="none"
               autoCorrect={false}
               returnKeyType="search"
             />
             {search.length > 0 && (
-              <Pressable accessibilityRole="button" accessibilityLabel="Clear search" onPress={() => setSearch('')} hitSlop={10}>
-                <Ionicons name="close-circle" size={20} color="#75717F" />
+              <Pressable accessibilityRole="button" accessibilityLabel={t('Clear search')} onPress={() => setSearch('')} hitSlop={10}>
+                <Ionicons name="close-circle" size={20} color={MUTED} />
               </Pressable>
             )}
           </View>
 
-          {isEditing && <Text style={styles.editHint}>Tap a group name to rename it, or the trash icon to remove it.</Text>}
+          {isEditing && <Text style={styles.editHint}>{t('Tap a group name to rename it, or the trash icon to remove it.')}</Text>}
 
           <View style={styles.groupList}>
-            {visibleGroups.map((group) => (
-              <View key={group.id} style={styles.groupCard}>
-                <View style={styles.groupHeader}>
-                  <Pressable
-                    accessibilityRole="button"
-                    accessibilityLabel={isEditing ? `Rename ${group.name}` : `View ${group.name} settlements`}
-                    onPress={() => isEditing ? openGroupEditor(group) : viewSettlements(group)}
-                    style={({ pressed }) => [styles.groupTitleButton, pressed && styles.pressed]}
-                  >
-                    <Text style={styles.groupTitle}>{group.name}</Text>
-                    {isEditing && <Ionicons name="pencil-outline" size={21} color="#222" />}
-                  </Pressable>
-                  {isEditing && (
+            {visibleGroups.map((group) => {
+              const memberCount = group.members?.length ?? 0;
+              const lastSplit = lastSplitLabel(group);
+              const subtitle = `${memberCount === 1 ? t('1 member') : t('{n} members', { n: memberCount })}${lastSplit ? ` · ${t('last split {date}', { date: lastSplit })}` : ''}`;
+              return (
+                <View key={group.id} style={styles.groupCard}>
+                  <View style={styles.cardBody}>
+                    <View style={styles.topRow}>
+                      <Pressable
+                        accessibilityRole="button"
+                        accessibilityLabel={isEditing ? t('Rename {name}', { name: group.name }) : t('View {name} settlements', { name: group.name })}
+                        onPress={() => (isEditing ? openGroupEditor(group) : viewSettlements(group))}
+                        style={({ pressed }) => [styles.topPress, pressed && styles.pressed]}
+                      >
+                        {renderAvatars(group)}
+                        <View style={styles.titleBlock}>
+                          <Text style={styles.groupTitle} numberOfLines={1}>
+                            {group.name}
+                          </Text>
+                          <Text style={styles.groupSub}>{subtitle}</Text>
+                        </View>
+                        <Ionicons name={isEditing ? 'pencil-outline' : 'chevron-forward'} size={24} color={MUTED} />
+                      </Pressable>
+                      {isEditing && (
+                        <Pressable
+                          accessibilityRole="button"
+                          accessibilityLabel={t('Remove {name}', { name: group.name })}
+                          onPress={() => removeGroup(group.id)}
+                          style={({ pressed }) => [styles.deleteGroupButton, pressed && styles.pressed]}
+                        >
+                          <Ionicons name="trash-outline" size={22} color={colors.RED} />
+                        </Pressable>
+                      )}
+                    </View>
+                    <View style={styles.statusRow}>
+                      {renderStatus(group)}
+                      <Pressable
+                        accessibilityRole="button"
+                        accessibilityLabel={t('Create new settlement for {name}', { name: group.name })}
+                        onPress={() => createSettlement(group)}
+                        style={({ pressed }) => [styles.newSplit, pressed && styles.pressed]}
+                      >
+                        <Ionicons name="add" size={26} color={colors.ON_PURPLE} />
+                        <Text style={styles.newSplitText}>{t('New split')}</Text>
+                      </Pressable>
+                    </View>
+                  </View>
+                  <View style={styles.footerRow}>
                     <Pressable
                       accessibilityRole="button"
-                      accessibilityLabel={`Remove ${group.name}`}
-                      onPress={() => removeGroup(group.id)}
-                      style={({ pressed }) => [styles.deleteGroupButton, pressed && styles.pressed]}
+                      accessibilityLabel={t('Balances for {name}', { name: group.name })}
+                      onPress={() => router.push({ pathname: '/group-balances', params: { groupId: group.id } })}
+                      style={({ pressed }) => [styles.footerButton, pressed && styles.pressed]}
                     >
-                      <Ionicons name="trash-outline" size={22} color="#B42318" />
+                      <Ionicons name="wallet-outline" size={22} color={PURPLE_DARK} />
+                      <Text style={styles.footerText}>{t('Balances')}</Text>
                     </Pressable>
-                  )}
+                    <Pressable
+                      accessibilityRole="button"
+                      accessibilityLabel={t('View settlements for {name}', { name: group.name })}
+                      onPress={() => viewSettlements(group)}
+                      style={({ pressed }) => [styles.footerButton, styles.footerDivider, pressed && styles.pressed]}
+                    >
+                      <Ionicons name="receipt-outline" size={22} color={PURPLE_DARK} />
+                      <Text style={styles.footerText}>{t('History')}</Text>
+                    </Pressable>
+                    <Pressable
+                      accessibilityRole="button"
+                      accessibilityLabel={t('Members of {name}', { name: group.name })}
+                      onPress={() => router.push({ pathname: '/group-members', params: { groupId: group.id } })}
+                      style={({ pressed }) => [styles.footerButton, styles.footerDivider, pressed && styles.pressed]}
+                    >
+                      <Ionicons name="people-outline" size={22} color={PURPLE_DARK} />
+                      <Text style={styles.footerText}>{t('Members')}</Text>
+                    </Pressable>
+                  </View>
                 </View>
-                <Pressable
-                  accessibilityRole="button"
-                  accessibilityLabel={`Create new settlement for ${group.name}`}
-                  onPress={() => createSettlement(group)}
-                  style={({ pressed }) => [styles.cardButton, pressed && styles.pressed]}
-                >
-                  <Text style={styles.cardButtonText}>Create new settlement</Text>
-                </Pressable>
-                <Pressable
-                  accessibilityRole="button"
-                  accessibilityLabel={`View settlements for ${group.name}`}
-                  onPress={() => viewSettlements(group)}
-                  style={({ pressed }) => [styles.cardButton, pressed && styles.pressed]}
-                >
-                  <Text style={styles.cardButtonText}>View settlements</Text>
-                </Pressable>
-                <Pressable
-                  accessibilityRole="button"
-                  accessibilityLabel={`Balances for ${group.name}`}
-                  onPress={() => router.push({ pathname: '/group-balances', params: { groupId: group.id } })}
-                  style={({ pressed }) => [styles.cardButton, pressed && styles.pressed]}
-                >
-                  <Text style={styles.cardButtonText}>Balances</Text>
-                </Pressable>
-                <Pressable
-                  accessibilityRole="button"
-                  accessibilityLabel={`Members of ${group.name}`}
-                  onPress={() => router.push({ pathname: '/group-members', params: { groupId: group.id } })}
-                  style={({ pressed }) => [styles.cardButton, pressed && styles.pressed]}
-                >
-                  <Text style={styles.cardButtonText}>Members</Text>
-                </Pressable>
-              </View>
-            ))}
+              );
+            })}
           </View>
 
-          {visibleGroups.length === 0 && <Text style={styles.emptyText}>No groups found.</Text>}
+          {visibleGroups.length === 0 && <Text style={styles.emptyText}>{t('No groups found.')}</Text>}
 
           <Pressable
             accessibilityRole="button"
             onPress={() => router.push('/create-new-group')}
             style={({ pressed }) => [styles.createGroupButton, pressed && styles.pressed]}
           >
-            <Ionicons name="add-outline" size={34} color="#111" />
-            <Text style={styles.createGroupText}>Create New Group</Text>
+            <Ionicons name="add" size={28} color={PURPLE_DARK} />
+            <Text style={styles.createGroupText}>{t('Create new group')}</Text>
           </Pressable>
         </ScrollView>
-
-
       </View>
 
       <Modal visible={modalVisible} transparent animationType="fade" onRequestClose={() => setModalVisible(false)}>
         <KeyboardAvoidingView style={styles.modalOverlay} behavior={Platform.OS === 'ios' ? 'padding' : 'height'}>
           <View style={styles.modalCard} accessibilityViewIsModal>
-            <Text style={styles.modalTitle}>Rename group</Text>
+            <Text style={styles.modalTitle}>{t('Rename group')}</Text>
             <TextInput
-              accessibilityLabel="Group name"
+              accessibilityLabel={t('Group name')}
               style={styles.modalInput}
-              placeholder="Enter group name"
-              placeholderTextColor="#75717F"
+              placeholder={t('Enter group name')}
+              placeholderTextColor={MUTED}
               value={groupName}
               onChangeText={setGroupName}
               autoFocus
@@ -229,7 +305,7 @@ export default function GroupsScreen() {
             />
             <View style={styles.modalActions}>
               <Pressable accessibilityRole="button" style={styles.modalCancel} onPress={() => setModalVisible(false)}>
-                <Text style={styles.modalActionText}>Cancel</Text>
+                <Text style={styles.modalCancelText}>{t('Cancel')}</Text>
               </Pressable>
               <Pressable
                 accessibilityRole="button"
@@ -238,7 +314,7 @@ export default function GroupsScreen() {
                 style={[styles.modalSave, !groupName.trim() && styles.pressed]}
                 onPress={saveGroup}
               >
-                <Text style={styles.modalActionText}>Save</Text>
+                <Text style={styles.modalSaveText}>{t('Save')}</Text>
               </Pressable>
             </View>
           </View>
@@ -248,38 +324,52 @@ export default function GroupsScreen() {
   );
 }
 
-const styles = StyleSheet.create({
-  safeArea: { flex: 1, backgroundColor: '#FFFFFF', alignItems: 'center' },
-  page: { flex: 1, width: '100%', maxWidth: 480, backgroundColor: '#FFFFFF' },
-  header: { flexDirection: 'row', alignItems: 'center', paddingHorizontal: 20, paddingTop: 26, paddingBottom: 28, gap: 10 },
-  backButton: { minWidth: 30, minHeight: 48, justifyContent: 'center', alignItems: 'center' },
-  backIcon: { flexDirection: 'row', alignItems: 'center' },
-  secondChevron: { marginLeft: -16 },
-  headerTitle: { flex: 1, fontSize: 32, fontWeight: '600', color: '#171717', letterSpacing: 0.2 },
-  editButton: { width: 50, height: 50, borderRadius: 25, backgroundColor: '#F6F6F6', alignItems: 'center', justifyContent: 'center' },
+const makeStyles = ({ PURPLE_DARK, PURPLE_TINT, PURPLE, ON_PURPLE, INK, MUTED, BORDER, PANEL, BG, SURFACE, RED_TINT, OVERLAY  }: Colors) =>
+  StyleSheet.create({
+  safeArea: { flex: 1, backgroundColor: BG, alignItems: 'center' },
+  page: { flex: 1, width: '100%', maxWidth: 480, backgroundColor: BG },
+  header: { flexDirection: 'row', alignItems: 'center', paddingHorizontal: 20, paddingTop: 16, paddingBottom: 20, gap: 12 },
+  headerTitle: { flex: 1, fontSize: 40, fontWeight: '800', color: INK, letterSpacing: -1 },
+  roundButton: { width: 56, height: 56, borderRadius: 28, borderWidth: 1, borderColor: BORDER, backgroundColor: SURFACE, alignItems: 'center', justifyContent: 'center' },
   scrollView: { flex: 1 },
   content: { paddingHorizontal: 20, paddingBottom: 42 },
-  searchBar: { minHeight: 48, flexDirection: 'row', alignItems: 'center', gap: 10, paddingHorizontal: 14, marginHorizontal: 5, marginBottom: 32, backgroundColor: '#F8F7FA', borderWidth: 1, borderColor: '#E6E3EE', borderRadius: 16 },
-  searchInput: { flex: 1, minWidth: 0, paddingVertical: 12, fontSize: 16, color: '#222' },
-  editHint: { color: '#696171', marginBottom: 16, fontSize: 14 },
-  groupList: { gap: 44 },
-  groupCard: { backgroundColor: '#C39FFF', borderRadius: 22, paddingHorizontal: 21, paddingTop: 24, paddingBottom: 22, gap: 12, shadowColor: '#000', shadowOffset: { width: 0, height: 4 }, shadowOpacity: 0.22, shadowRadius: 2.5, elevation: 4 },
-  groupHeader: { flexDirection: 'row', alignItems: 'center', gap: 8 },
-  deleteGroupButton: { width: 44, height: 44, borderRadius: 12, alignItems: 'center', justifyContent: 'center', backgroundColor: '#FFF0EE' },
-  groupTitleButton: { flex: 1, minWidth: 0, minHeight: 38, flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', gap: 8, marginBottom: 0 },
-  groupTitle: { flexShrink: 1, fontSize: 27, fontWeight: '500', color: '#202020', textDecorationLine: 'underline' },
-  cardButton: { minHeight: 58, backgroundColor: '#F7F7F7', borderRadius: 17, alignItems: 'center', justifyContent: 'center', paddingVertical: 15, paddingHorizontal: 10, shadowColor: '#000', shadowOffset: { width: 0, height: 4 }, shadowOpacity: 0.22, shadowRadius: 2, elevation: 4 },
-  cardButtonText: { fontSize: 22, fontWeight: '500', color: '#202020', textAlign: 'center' },
-  createGroupButton: { minHeight: 44, marginTop: 32, flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 8, paddingHorizontal: 12, paddingVertical: 4, backgroundColor: '#C2C2C2', borderRadius: 16 },
-  createGroupText: { fontSize: 18, fontWeight: '600', color: '#080808' },
-  emptyText: { textAlign: 'center', paddingVertical: 24, color: '#75717F', fontSize: 16 },
+  searchBar: { minHeight: 58, flexDirection: 'row', alignItems: 'center', gap: 12, paddingHorizontal: 18, marginBottom: 24, backgroundColor: PANEL, borderWidth: 1, borderColor: BORDER, borderRadius: 22 },
+  searchInput: { flex: 1, minWidth: 0, paddingVertical: 14, fontSize: 20, color: INK },
+  editHint: { color: MUTED, marginBottom: 16, fontSize: 14 },
+  groupList: { gap: 20 },
+  groupCard: { backgroundColor: SURFACE, borderRadius: 30, borderWidth: 1, borderColor: BORDER, overflow: 'hidden' },
+  cardBody: { padding: 18, gap: 16 },
+  topRow: { flexDirection: 'row', alignItems: 'center', gap: 8 },
+  topPress: { flex: 1, minWidth: 0, flexDirection: 'row', alignItems: 'center', gap: 16 },
+  avatars: { flexDirection: 'row', alignItems: 'center' },
+  avatar: { width: 56, height: 56, borderRadius: 28, borderWidth: 3, borderColor: SURFACE, alignItems: 'center', justifyContent: 'center' },
+  avatarOverlap: { marginLeft: -16 },
+  avatarText: { fontSize: 20, fontWeight: '800', color: '#FFFFFF' },
+  titleBlock: { flex: 1, minWidth: 0 },
+  groupTitle: { fontSize: 26, fontWeight: '800', color: INK, letterSpacing: -0.4 },
+  groupSub: { fontSize: 16, color: MUTED, marginTop: 2 },
+  deleteGroupButton: { width: 44, height: 44, borderRadius: 12, alignItems: 'center', justifyContent: 'center', backgroundColor: RED_TINT },
+  statusRow: { flexDirection: 'row', alignItems: 'center', gap: 14 },
+  pill: { flex: 1, minHeight: 52, flexDirection: 'row', alignItems: 'center', gap: 10, borderRadius: 26, paddingHorizontal: 18, paddingVertical: 8 },
+  pillDot: { width: 10, height: 10, borderRadius: 5 },
+  pillText: { flexShrink: 1, fontSize: 18, fontWeight: '800' },
+  newSplit: { minHeight: 52, flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 8, borderRadius: 22, paddingHorizontal: 22, backgroundColor: PURPLE },
+  newSplitText: { fontSize: 20, fontWeight: '800', color: ON_PURPLE },
+  footerRow: { flexDirection: 'row', borderTopWidth: 1, borderTopColor: BORDER },
+  footerButton: { flex: 1, flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 8, paddingVertical: 18 },
+  footerDivider: { borderLeftWidth: 1, borderLeftColor: BORDER },
+  footerText: { fontSize: 18, fontWeight: '800', color: PURPLE_DARK },
+  createGroupButton: { minHeight: 68, marginTop: 24, flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 10, borderRadius: 24, borderWidth: 2, borderStyle: 'dashed', borderColor: PURPLE },
+  createGroupText: { fontSize: 22, fontWeight: '800', color: PURPLE_DARK },
+  emptyText: { textAlign: 'center', paddingVertical: 24, color: MUTED, fontSize: 16 },
   pressed: { opacity: 0.65 },
-  modalOverlay: { flex: 1, justifyContent: 'center', alignItems: 'center', padding: 24, backgroundColor: 'rgba(0,0,0,0.35)' },
-  modalCard: { width: '100%', maxWidth: 400, borderRadius: 22, padding: 24, backgroundColor: '#FFF' },
-  modalTitle: { fontSize: 22, fontWeight: '600', color: '#171717', marginBottom: 20 },
-  modalInput: { borderWidth: 1, borderColor: '#E6E3EE', backgroundColor: '#F8F7FA', borderRadius: 14, padding: 14, fontSize: 17, color: '#222' },
+  modalOverlay: { flex: 1, justifyContent: 'center', alignItems: 'center', padding: 24, backgroundColor: OVERLAY },
+  modalCard: { width: '100%', maxWidth: 400, borderRadius: 28, padding: 24, backgroundColor: SURFACE },
+  modalTitle: { fontSize: 22, fontWeight: '800', color: INK, marginBottom: 20 },
+  modalInput: { borderWidth: 1, borderColor: BORDER, backgroundColor: PANEL, borderRadius: 16, padding: 14, fontSize: 17, color: INK },
   modalActions: { flexDirection: 'row', justifyContent: 'flex-end', gap: 12, marginTop: 20 },
-  modalCancel: { paddingHorizontal: 18, paddingVertical: 13, borderRadius: 12, backgroundColor: '#EFEFEF' },
-  modalSave: { paddingHorizontal: 22, paddingVertical: 13, borderRadius: 12, backgroundColor: '#C39FFF' },
-  modalActionText: { fontSize: 16, fontWeight: '600', color: '#171717' },
+  modalCancel: { paddingHorizontal: 18, paddingVertical: 13, borderRadius: 14, backgroundColor: PURPLE_TINT },
+  modalSave: { paddingHorizontal: 22, paddingVertical: 13, borderRadius: 14, backgroundColor: PURPLE },
+  modalCancelText: { fontSize: 16, fontWeight: '800', color: PURPLE_DARK },
+  modalSaveText: { fontSize: 16, fontWeight: '800', color: ON_PURPLE },
 });

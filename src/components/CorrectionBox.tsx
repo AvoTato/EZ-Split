@@ -1,5 +1,5 @@
 import { Ionicons } from '@expo/vector-icons';
-import { useState } from 'react';
+import { useMemo, useState } from 'react';
 import { ActivityIndicator, Pressable, StyleSheet, Text, TextInput, View } from 'react-native';
 
 import type { ParsedReceipt } from '../lib/parseReceipt';
@@ -10,12 +10,9 @@ import {
   type CorrectionInterpreter,
 } from '../lib/receiptCommands';
 import type { ReceiptPatch } from '../lib/receiptReview';
+import { useColors, type Colors } from '../lib/theme';
+import { useT } from '../lib/i18n';
 
-const PURPLE = '#9B87F0';
-const PILL_GRAY = '#EFEFEF';
-const MUTED = '#8A8A8A';
-const AMBER = '#B45309';
-const AMBER_TINT = '#FFF7ED';
 
 export default function CorrectionBox({
   receipt,
@@ -26,6 +23,10 @@ export default function CorrectionBox({
   onPatch: (patch: ReceiptPatch) => void;
   interpreter?: CorrectionInterpreter;
 }) {
+  const t = useT();
+  const colors = useColors();
+  const { MUTED } = colors;
+  const styles = useMemo(() => makeStyles(colors), [colors]);
   const [text, setText] = useState('');
   const [answer, setAnswer] = useState<{ result: CommandResult; receipt: ParsedReceipt } | null>(null);
   const [busy, setBusy] = useState(false);
@@ -42,7 +43,7 @@ export default function CorrectionBox({
     try {
       setResult(await interpreter(text, receipt));
     } catch {
-      setResult({ ok: false, error: 'Something went wrong. Try again or edit the receipt directly.' });
+      setResult({ ok: false, error: t('Something went wrong. Try again or edit the receipt directly.') });
     } finally {
       setBusy(false);
     }
@@ -66,7 +67,7 @@ export default function CorrectionBox({
             if (result && !result.ok) setResult(null);
           }}
           onSubmitEditing={handleSubmit}
-          placeholder={`Tell us what to fix, e.g. "${COMMAND_EXAMPLES[0]}"`}
+          placeholder={t('Tell us what to fix, e.g. "{example}"', { example: COMMAND_EXAMPLES[0] })}
           placeholderTextColor={MUTED}
           returnKeyType="go"
           autoCapitalize="none"
@@ -75,13 +76,13 @@ export default function CorrectionBox({
           style={[styles.sendButton, !text.trim() && styles.sendButtonDisabled]}
           onPress={handleSubmit}
           disabled={!text.trim() || busy}
-          accessibilityLabel="Preview fix"
+          accessibilityLabel={t('Preview fix')}
           hitSlop={6}
         >
           {busy ? (
-            <ActivityIndicator size="small" color="#fff" />
+            <ActivityIndicator size="small" color={colors.ON_PURPLE} />
           ) : (
-            <Ionicons name="arrow-forward" size={16} color="#fff" />
+            <Ionicons name="arrow-forward" size={16} color={colors.ON_PURPLE} />
           )}
         </Pressable>
       </View>
@@ -91,10 +92,10 @@ export default function CorrectionBox({
           <Text style={styles.previewText}>{result.summary}</Text>
           <View style={styles.previewActions}>
             <Pressable onPress={() => setResult(null)} hitSlop={6}>
-              <Text style={styles.cancelText}>Cancel</Text>
+              <Text style={styles.cancelText}>{t('Cancel')}</Text>
             </Pressable>
             <Pressable style={styles.applyButton} onPress={handleApply} hitSlop={6}>
-              <Text style={styles.applyText}>Apply</Text>
+              <Text style={styles.applyText}>{t('Apply')}</Text>
             </Pressable>
           </View>
         </View>
@@ -104,7 +105,7 @@ export default function CorrectionBox({
         <View style={styles.errorBox}>
           <Text style={styles.errorText}>{result.error}</Text>
           <Text style={styles.examplesText}>
-            Try: {COMMAND_EXAMPLES.map((example) => `"${example}"`).join(', ')}
+            {t('Try: {examples}', { examples: COMMAND_EXAMPLES.map((example) => `"${example}"`).join(', ') })}
           </Text>
         </View>
       )}
@@ -112,7 +113,8 @@ export default function CorrectionBox({
   );
 }
 
-const styles = StyleSheet.create({
+const makeStyles = ({ PURPLE, ON_PURPLE, INK, MUTED, PILL_GRAY, AMBER_TINT, AMBER  }: Colors) =>
+  StyleSheet.create({
   container: {
     marginTop: 12,
     gap: 8,
@@ -129,7 +131,7 @@ const styles = StyleSheet.create({
     paddingHorizontal: 12,
     paddingVertical: 10,
     fontSize: 14,
-    color: '#000',
+    color: INK,
   },
   sendButton: {
     width: 36,
@@ -152,7 +154,7 @@ const styles = StyleSheet.create({
   previewText: {
     fontSize: 14,
     fontWeight: '600',
-    color: '#000',
+    color: INK,
   },
   previewActions: {
     flexDirection: 'row',
@@ -174,7 +176,7 @@ const styles = StyleSheet.create({
   applyText: {
     fontSize: 14,
     fontWeight: '700',
-    color: '#fff',
+    color: ON_PURPLE,
   },
   errorBox: {
     backgroundColor: AMBER_TINT,

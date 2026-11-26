@@ -1,16 +1,13 @@
 import { Ionicons } from '@expo/vector-icons';
+import { useMemo } from 'react';
 import { useRouter } from 'expo-router';
 import { Tabs, type BottomTabBarProps } from 'expo-router/tabs';
 import { Pressable, StyleSheet, Text, View } from 'react-native';
 
 import { setGroupSettlementSetup } from '../../lib/receiptSession';
+import { useColors, type Colors } from '../../lib/theme';
+import { useT } from '../../lib/i18n';
 
-const PURPLE = '#9B87F0';
-const PURPLE_DARK = '#5B3FD8';
-const PURPLE_TINT = '#F0ECFD';
-const INK = '#1A1530';
-const MUTED = '#6B6880';
-const BORDER = '#E6E3F0';
 
 type TabItem = {
   route: string;
@@ -23,6 +20,10 @@ const LEFT: TabItem = { route: 'index', label: 'Home', icon: 'home-outline', ico
 const RIGHT: TabItem = { route: 'groups', label: 'Groups', icon: 'people-outline', iconActive: 'people' };
 
 function TabBar({ state, navigation, insets }: BottomTabBarProps) {
+  const t = useT();
+  const colors = useColors();
+  const { PURPLE_DARK, MUTED } = colors;
+  const styles = useMemo(() => makeStyles(colors), [colors]);
   const router = useRouter();
   const activeRoute = state.routes[state.index]?.name;
 
@@ -44,7 +45,7 @@ function TabBar({ state, navigation, insets }: BottomTabBarProps) {
       <Pressable
         key={item.route}
         accessibilityRole="button"
-        accessibilityLabel={item.label}
+        accessibilityLabel={t(item.label)}
         accessibilityState={{ selected: focused }}
         onPress={() => goTo(item.route)}
         style={styles.tabSlot}
@@ -55,7 +56,7 @@ function TabBar({ state, navigation, insets }: BottomTabBarProps) {
             size={24}
             color={focused ? PURPLE_DARK : MUTED}
           />
-          <Text style={[styles.tabLabel, focused && styles.tabLabelActive]}>{item.label}</Text>
+          <Text style={[styles.tabLabel, focused && styles.tabLabelActive]}>{t(item.label)}</Text>
         </View>
       </Pressable>
     );
@@ -69,11 +70,11 @@ function TabBar({ state, navigation, insets }: BottomTabBarProps) {
         {renderTab(RIGHT)}
         <Pressable
           accessibilityRole="button"
-          accessibilityLabel="Start instant split"
+          accessibilityLabel={t('Start instant split')}
           onPress={startInstant}
           style={({ pressed }) => [styles.fab, pressed && styles.fabPressed]}
         >
-          <Ionicons name="add" size={36} color={INK} />
+          <Ionicons name="add" size={36} color={colors.ON_PURPLE} />
         </Pressable>
       </View>
     </View>
@@ -81,17 +82,19 @@ function TabBar({ state, navigation, insets }: BottomTabBarProps) {
 }
 
 export default function TabsLayout() {
+  const colors = useColors();
   return (
-    <Tabs screenOptions={{ headerShown: false }} tabBar={(props) => <TabBar {...props} />}>
+    <Tabs screenOptions={{ headerShown: false, sceneStyle: { backgroundColor: colors.BG } }} tabBar={(props) => <TabBar {...props} />}>
       <Tabs.Screen name="index" options={{ title: 'Home' }} />
       <Tabs.Screen name="groups" options={{ title: 'Groups' }} />
     </Tabs>
   );
 }
 
-const styles = StyleSheet.create({
+const makeStyles = ({ PURPLE_DARK, PURPLE_TINT, PURPLE, MUTED, BORDER, SURFACE  }: Colors) =>
+  StyleSheet.create({
   bar: {
-    backgroundColor: '#fff',
+    backgroundColor: SURFACE,
     borderTopWidth: 1,
     borderTopColor: BORDER,
     paddingTop: 10,
@@ -142,7 +145,7 @@ const styles = StyleSheet.create({
     borderRadius: 32,
     backgroundColor: PURPLE,
     borderWidth: 4,
-    borderColor: '#fff',
+    borderColor: SURFACE,
     alignItems: 'center',
     justifyContent: 'center',
   },

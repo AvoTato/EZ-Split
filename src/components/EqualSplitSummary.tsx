@@ -1,6 +1,6 @@
 import { Ionicons } from '@expo/vector-icons';
 import { useRouter } from 'expo-router';
-import { useState } from 'react';
+import { useMemo, useState } from 'react';
 import {
   KeyboardAvoidingView,
   Modal,
@@ -17,22 +17,13 @@ import { SafeAreaView } from 'react-native-safe-area-context';
 import SplitBreakdown from './SplitBreakdown';
 
 import { payBackStatus } from '../lib/debts';
+import { groupStep } from '../lib/flowSteps';
 import { money, pctOf } from '../lib/format';
 import type { ParsedReceipt } from '../lib/parseReceipt';
 import type { SettlementSummarySession } from '../lib/receiptSession';
+import { useColors, type Colors } from '../lib/theme';
+import { useT } from '../lib/i18n';
 
-const PURPLE = '#9B87F0';
-const PURPLE_DARK = '#5B3FD8';
-const PURPLE_TINT = '#F0ECFD';
-const INK = '#1A1530';
-const MUTED = '#6B6880';
-const BORDER = '#E6E3F0';
-const TRACK = '#EFECF8';
-const PANEL = '#F8F7FB';
-const GREEN = '#1B6B35';
-const GREEN_BAR = '#1E7B3A';
-const GREEN_TINT = '#E6F4EA';
-const AMBER = '#9A4A06';
 const AVATAR_COLORS = ['#5B3FD8', '#0F766E', '#B45309', '#C2185B', '#0369A1', '#7C3AED'];
 
 function formatDate(date: Date) {
@@ -52,6 +43,8 @@ type Props = {
   onCreateGroup?: (groupName: string) => void;
   receipt: ParsedReceipt | null;
   isEqual: boolean;
+  isHistory?: boolean;
+  date?: number;
 };
 
 export default function EqualSplitSummary({
@@ -67,7 +60,13 @@ export default function EqualSplitSummary({
   onCreateGroup,
   receipt,
   isEqual,
+  isHistory = false,
+  date,
 }: Props) {
+  const t = useT();
+  const colors = useColors();
+  const { PURPLE_DARK, INK, MUTED, GREEN } = colors;
+  const styles = useMemo(() => makeStyles(colors), [colors]);
   const router = useRouter();
   const [namingGroup, setNamingGroup] = useState(false);
   const [groupName, setGroupName] = useState('');
@@ -87,15 +86,15 @@ export default function EqualSplitSummary({
   const servicePct = receipt ? pctOf(receipt.serviceCharge, receipt.subtotal) : null;
   const taxPct = receipt ? pctOf(receipt.tax, receipt.subtotal) : null;
   const includes = [
-    receipt && receipt.serviceCharge !== null ? `${servicePct !== null ? `${servicePct}% ` : ''}service` : null,
-    receipt && receipt.tax !== null ? `${taxPct !== null ? `${taxPct}% ` : ''}SST` : null,
+    receipt && receipt.serviceCharge !== null ? `${servicePct !== null ? `${servicePct}% ` : ''}${t('service')}` : null,
+    receipt && receipt.tax !== null ? `${taxPct !== null ? `${taxPct}% ` : ''}${t('SST')}` : null,
   ].filter((part): part is string => part !== null);
-  const peopleLabel = `${count} ${count === 1 ? 'person' : 'people'}`;
+  const peopleLabel = count === 1 ? t('1 person') : t('{n} people', { n: count });
   const heroSub = isEqual
-    ? `${peopleLabel} · split equally, ${money(each)} each`
+    ? `${peopleLabel} · ${t('split equally, {amount} each', { amount: money(each) })}`
     : includes.length > 0
-      ? `${peopleLabel} · includes ${includes.join(' and ')}`
-      : `${peopleLabel} · split by dish`;
+      ? `${peopleLabel} · ${t('includes {list}', { list: includes.join(t(' and ')) })}`
+      : `${peopleLabel} · ${t('split by dish')}`;
 
   const submitGroup = () => {
     const name = groupName.trim();
@@ -109,12 +108,12 @@ export default function EqualSplitSummary({
     <SafeAreaView style={styles.safeArea}>
       <View style={styles.page}>
         <View style={styles.header}>
-          <Pressable accessibilityRole="button" accessibilityLabel="Go back" onPress={onBack} hitSlop={12}>
+          <Pressable accessibilityRole="button" accessibilityLabel={t('Go back')} onPress={onBack} hitSlop={12}>
             <Ionicons name="chevron-back" size={28} color={INK} />
           </Pressable>
           <View>
-            <Text style={styles.stepLabel}>{isGroup ? 'Group settlement' : 'Instant split · Step 3 of 3'}</Text>
-            <Text style={styles.headerTitle}>Settlement summary</Text>
+            <Text style={styles.stepLabel}>{isHistory ? (isGroup ? t('Group settlement') : t('Instant split')) : isGroup ? groupStep(4).label : t('Instant split · Step {n} of 3', { n: 3 })}</Text>
+            <Text style={styles.headerTitle}>{t('Settlement summary')}</Text>
           </View>
         </View>
 
@@ -125,7 +124,7 @@ export default function EqualSplitSummary({
         <ScrollView contentContainerStyle={styles.content} showsVerticalScrollIndicator={false}>
           <View style={styles.hero}>
             <Text style={styles.heroMeta}>
-              {title} · {formatDate(new Date())}
+              {title} · {formatDate(date ? new Date(date) : new Date())}
             </Text>
             <Text style={styles.heroTotal}>{money(total)}</Text>
             <Text style={styles.heroSub}>
@@ -133,7 +132,7 @@ export default function EqualSplitSummary({
             </Text>
           </View>
 
-          <Text style={styles.sectionTitle}>Who paid upfront?</Text>
+          <Text style={styles.sectionTitle}>{t('Who paid upfront?')}</Text>
           <View style={styles.chips}>
             {session.people.map((person) => {
               const selected = session.paidBy === person.id;
@@ -141,7 +140,7 @@ export default function EqualSplitSummary({
                 <Pressable
                   key={person.id}
                   accessibilityRole="button"
-                  accessibilityLabel={`${person.name} paid upfront`}
+                  accessibilityLabel={t('{name} paid upfront', { name: person.name })}
                   accessibilityState={{ selected }}
                   onPress={() => onSelectPayer(person.id)}
                   style={({ pressed }) => [styles.chip, selected && styles.chipSelected, pressed && styles.pressed]}
@@ -156,7 +155,7 @@ export default function EqualSplitSummary({
             {payer ? (
               <>
                 <View style={styles.collectedRow}>
-                  <Text style={styles.collectedTitle}>Collected so far</Text>
+                  <Text style={styles.collectedTitle}>{t('Collected so far')}</Text>
                   <Text style={styles.collectedValue}>
                     {money(collected)} of {money(owed)}
                   </Text>
@@ -166,7 +165,7 @@ export default function EqualSplitSummary({
                 </View>
               </>
             ) : (
-              <Text style={styles.hint}>Pick who paid upfront to track who has paid them back.</Text>
+              <Text style={styles.hint}>{t('Pick who paid upfront to track who has paid them back.')}</Text>
             )}
 
             {session.people.map((person, index) => {
@@ -184,7 +183,7 @@ export default function EqualSplitSummary({
                     </Text>
                     {payer && (
                       <Text style={styles.personSub} numberOfLines={2}>
-                        {isPayer ? `Own share ${money(person.amount)}` : `Owes ${payer.name}`}
+                        {isPayer ? t('Own share {amount}', { amount: money(person.amount) }) : t('Owes {name}', { name: payer.name })}
                       </Text>
                     )}
                   </View>
@@ -192,7 +191,7 @@ export default function EqualSplitSummary({
                     <Pressable
                       accessibilityRole="button"
                       accessibilityState={{ expanded: expandedId === person.id }}
-                      accessibilityLabel={`${expandedId === person.id ? 'Hide' : 'Show'} how ${person.name}'s ${money(person.amount)} was worked out`}
+                      accessibilityLabel={expandedId === person.id ? t('Hide how {name}’s {amount} was worked out', { name: person.name, amount: money(person.amount) }) : t('Show how {name}’s {amount} was worked out', { name: person.name, amount: money(person.amount) })}
                       onPress={() => setExpandedId(expandedId === person.id ? null : person.id)}
                       hitSlop={8}
                       style={styles.amountToggle}
@@ -210,26 +209,26 @@ export default function EqualSplitSummary({
                   {payer &&
                     (isPayer ? (
                       <View style={styles.upfrontPill}>
-                        <Text style={styles.upfrontText}>Paid upfront</Text>
+                        <Text style={styles.upfrontText}>{t('Paid upfront')}</Text>
                       </View>
                     ) : paid ? (
                       <Pressable
                         accessibilityRole="button"
-                        accessibilityLabel={`${person.name} has paid ${payer.name} back. Tap to undo`}
+                        accessibilityLabel={t('{name} has paid {payer} back. Tap to undo', { name: person.name, payer: payer.name })}
                         onPress={() => onTogglePaid(person.id)}
                         style={({ pressed }) => [styles.paidPill, pressed && styles.pressed]}
                       >
                         <Ionicons name="checkmark" size={20} color={GREEN} />
-                        <Text style={styles.paidText}>Paid</Text>
+                        <Text style={styles.paidText}>{t('Paid')}</Text>
                       </Pressable>
                     ) : (
                       <Pressable
                         accessibilityRole="button"
-                        accessibilityLabel={`Mark ${person.name} as paid back`}
+                        accessibilityLabel={t('Mark {name} as paid back', { name: person.name })}
                         onPress={() => onTogglePaid(person.id)}
                         style={({ pressed }) => [styles.markButton, pressed && styles.pressed]}
                       >
-                        <Text style={styles.markText}>Mark paid</Text>
+                        <Text style={styles.markText}>{t('Mark paid')}</Text>
                       </Pressable>
                     ))}
                 </View>
@@ -243,12 +242,11 @@ export default function EqualSplitSummary({
 
           {session.unassignedItems && session.unassignedItems.length > 0 && (
             <View style={styles.unassignedCard}>
-              <Text style={styles.unassignedTitle}>Unassigned items</Text>
+              <Text style={styles.unassignedTitle}>{t('Unassigned items')}</Text>
               <Text style={styles.unassignedNote}>
-                These items were not assigned to anyone and are not included above
                 {session.unassignedItems.some((item) => item.withCharges !== undefined)
-                  ? ' (amounts include their share of discount, tax and service).'
-                  : '.'}
+                  ? t('These items were not assigned to anyone and are not included above (amounts include their share of discount, tax and service).')
+                  : t('These items were not assigned to anyone and are not included above.')}
               </Text>
               {session.unassignedItems.map((item, i) => (
                 <View key={i} style={styles.unassignedRow}>
@@ -270,16 +268,16 @@ export default function EqualSplitSummary({
             style={styles.linkRow}
           >
             <Ionicons name="information-circle-outline" size={26} color={PURPLE_DARK} />
-            <Text style={styles.linkText}>How was this split?</Text>
+            <Text style={styles.linkText}>{t('How was this split?')}</Text>
           </Pressable>
 
-          {onCreateGroup && !isGroup && (
+          {onCreateGroup && !isGroup && !isHistory && (
             <Pressable
               accessibilityRole="button"
               onPress={() => setNamingGroup(true)}
               style={styles.createGroup}
             >
-              <Text style={styles.linkText}>Create a group from these people</Text>
+              <Text style={styles.linkText}>{t('Create a group from these people')}</Text>
             </Pressable>
           )}
         </ScrollView>
@@ -292,7 +290,7 @@ export default function EqualSplitSummary({
             style={({ pressed }) => [styles.saveButton, saveDisabled && styles.disabled, pressed && styles.pressed]}
           >
             <Text style={styles.saveText} numberOfLines={1}>
-              {isGroup ? 'Save' : 'Back to homepage'}
+              {isHistory ? t('Done') : isGroup ? t('Save') : t('Back to homepage')}
             </Text>
           </Pressable>
           <Pressable
@@ -300,8 +298,8 @@ export default function EqualSplitSummary({
             onPress={onShare}
             style={({ pressed }) => [styles.shareButton, pressed && styles.pressed]}
           >
-            <Ionicons name="share-outline" size={22} color={INK} />
-            <Text style={styles.shareText}>Share bill</Text>
+            <Ionicons name="share-outline" size={22} color={colors.ON_PURPLE} />
+            <Text style={styles.shareText}>{t('Share bill')}</Text>
           </Pressable>
         </View>
       </View>
@@ -312,12 +310,12 @@ export default function EqualSplitSummary({
           behavior={Platform.OS === 'ios' ? 'padding' : undefined}
         >
           <View style={styles.dialog}>
-            <Text style={styles.dialogTitle}>Name your group</Text>
+            <Text style={styles.dialogTitle}>{t('Name your group')}</Text>
             <TextInput
               style={styles.dialogInput}
               value={groupName}
               onChangeText={setGroupName}
-              placeholder="e.g. Housemates"
+              placeholder={t('e.g. Housemates')}
               placeholderTextColor={MUTED}
               autoFocus
               returnKeyType="done"
@@ -325,14 +323,14 @@ export default function EqualSplitSummary({
             />
             <View style={styles.dialogActions}>
               <Pressable style={styles.dialogCancel} onPress={() => setNamingGroup(false)}>
-                <Text style={styles.dialogCancelText}>Cancel</Text>
+                <Text style={styles.dialogCancelText}>{t('Cancel')}</Text>
               </Pressable>
               <Pressable
                 style={[styles.dialogCreate, groupName.trim().length === 0 && styles.disabled]}
                 disabled={groupName.trim().length === 0}
                 onPress={submitGroup}
               >
-                <Text style={styles.dialogCreateText}>Create group</Text>
+                <Text style={styles.dialogCreateText}>{t('Create group')}</Text>
               </Pressable>
             </View>
           </View>
@@ -342,10 +340,11 @@ export default function EqualSplitSummary({
   );
 }
 
-const styles = StyleSheet.create({
+const makeStyles = ({ PURPLE_DARK, PURPLE_TINT, PURPLE, ON_PURPLE, INK, MUTED, BORDER, TRACK, PANEL, BG, SURFACE, GREEN_BAR, GREEN_TINT, GREEN, AMBER, OVERLAY  }: Colors) =>
+  StyleSheet.create({
   safeArea: {
     flex: 1,
-    backgroundColor: '#fff',
+    backgroundColor: BG,
     alignItems: 'center',
   },
   page: {
@@ -395,18 +394,18 @@ const styles = StyleSheet.create({
   heroMeta: {
     fontSize: 17,
     fontWeight: '700',
-    color: INK,
+    color: ON_PURPLE,
   },
   heroTotal: {
     fontSize: 56,
     lineHeight: 64,
     fontWeight: '800',
-    color: INK,
+    color: ON_PURPLE,
     letterSpacing: -2,
   },
   heroSub: {
     fontSize: 17,
-    color: INK,
+    color: ON_PURPLE,
   },
   sectionTitle: {
     fontSize: 20,
@@ -425,7 +424,7 @@ const styles = StyleSheet.create({
     borderRadius: 999,
     borderWidth: 2,
     borderColor: PURPLE,
-    backgroundColor: '#fff',
+    backgroundColor: SURFACE,
     paddingVertical: 16,
     paddingHorizontal: 28,
   },
@@ -438,11 +437,11 @@ const styles = StyleSheet.create({
     color: PURPLE_DARK,
   },
   chipTextSelected: {
-    color: INK,
+    color: ON_PURPLE,
   },
   card: {
     marginTop: 24,
-    backgroundColor: '#fff',
+    backgroundColor: SURFACE,
     borderRadius: 28,
     borderWidth: 1,
     borderColor: BORDER,
@@ -632,7 +631,7 @@ const styles = StyleSheet.create({
     borderRadius: 18,
     borderWidth: 2,
     borderColor: PURPLE,
-    backgroundColor: '#fff',
+    backgroundColor: SURFACE,
     paddingVertical: 18,
     alignItems: 'center',
     justifyContent: 'center',
@@ -665,7 +664,7 @@ const styles = StyleSheet.create({
   },
   backdrop: {
     flex: 1,
-    backgroundColor: 'rgba(0, 0, 0, 0.4)',
+    backgroundColor: OVERLAY,
     justifyContent: 'center',
     alignItems: 'center',
     padding: 24,
@@ -673,7 +672,7 @@ const styles = StyleSheet.create({
   dialog: {
     width: '100%',
     maxWidth: 400,
-    backgroundColor: '#fff',
+    backgroundColor: SURFACE,
     borderRadius: 24,
     padding: 22,
     gap: 16,

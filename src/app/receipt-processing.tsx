@@ -1,10 +1,11 @@
 import { Ionicons } from '@expo/vector-icons';
 import { useRouter } from 'expo-router';
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { Alert, Animated, Easing, Platform, Pressable, StyleSheet, Text, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
 import { ScanError, parseReceiptImage } from '../lib/api';
+import { groupStep, isGroupFlow } from '../lib/flowSteps';
 import {
   callGoogleVisionOCR,
   foldNegativeLines,
@@ -13,16 +14,9 @@ import {
 } from '../lib/parseReceipt';
 import { checkReceipt, repairTotal } from '../lib/receiptReview';
 import { setParsedReceipt, takePendingImage } from '../lib/receiptSession';
+import { useColors, type Colors } from '../lib/theme';
+import { useT } from '../lib/i18n';
 
-const PURPLE = '#9B87F0';
-const PURPLE_DARK = '#5B3FD8';
-const INK = '#1A1530';
-const MUTED = '#6B6880';
-const TRACK = '#EFECF8';
-const BORDER = '#E6E3F0';
-const GREEN = '#2E7D32';
-const GREEN_TINT = '#E6F4EA';
-const SKELETON = '#E8E6EF';
 const MIN_VISIBLE_MS = 200;
 const CARD_HEIGHT = 280;
 const STEP_MS = 1000;
@@ -47,6 +41,8 @@ const SKELETON_ROWS = [
 ];
 
 function Spinner() {
+  const colors = useColors();
+  const styles = useMemo(() => makeStyles(colors), [colors]);
   const [spin] = useState(() => new Animated.Value(0));
 
   useEffect(() => {
@@ -63,6 +59,9 @@ function Spinner() {
 }
 
 function StepIcon({ state }: { state: 'done' | 'active' | 'pending' }) {
+  const colors = useColors();
+  const { GREEN } = colors;
+  const styles = useMemo(() => makeStyles(colors), [colors]);
   if (state === 'done') {
     return (
       <View style={styles.stepDone}>
@@ -75,6 +74,9 @@ function StepIcon({ state }: { state: 'done' | 'active' | 'pending' }) {
 }
 
 export default function ReceiptProcessingScreen() {
+  const t = useT();
+  const colors = useColors();
+  const styles = useMemo(() => makeStyles(colors), [colors]);
   const router = useRouter();
   const [progress] = useState(() => new Animated.Value(0));
   const [scan] = useState(() => new Animated.Value(0));
@@ -163,13 +165,13 @@ export default function ReceiptProcessingScreen() {
           // react-native-web's Alert.alert is a no-op, so its onPress (the redirect) would
           // never fire there — use window.alert on web instead, and navigate right after it.
           if (Platform.OS === 'web') {
-            window.alert("Couldn't read that receipt. Please try again with a clearer photo.");
+            window.alert(`${t("Couldn't read that receipt")}. ${t('Please try again with a clearer photo.')}`);
             router.replace('/upload-receipt');
           } else {
             Alert.alert(
-              "Couldn't read that receipt",
-              'Please try again with a clearer photo.',
-              [{ text: 'OK', onPress: () => router.replace('/upload-receipt') }]
+              t("Couldn't read that receipt"),
+              t('Please try again with a clearer photo.'),
+              [{ text: t('OK'), onPress: () => router.replace('/upload-receipt') }]
             );
           }
           return;
@@ -201,7 +203,7 @@ export default function ReceiptProcessingScreen() {
 
   const cancel = () => {
     cancelledRef.current = true;
-    router.replace('/upload-file');
+    router.replace(isGroupFlow() ? '/upload-file?flow=group' : '/upload-file');
   };
 
   const bandY = scan.interpolate({ inputRange: [0, 1], outputRange: [0, CARD_HEIGHT - 70] });
@@ -216,8 +218,8 @@ export default function ReceiptProcessingScreen() {
     <SafeAreaView style={styles.safeArea}>
       <View style={styles.content}>
         <View>
-          <Text style={styles.stepLabel}>Instant split · Step 1 of 3</Text>
-          <Text style={styles.title}>Reading your receipt</Text>
+          <Text style={styles.stepLabel}>{isGroupFlow() ? groupStep(2).label : t('Instant split · Step {n} of 3', { n: 1 })}</Text>
+          <Text style={styles.title}>{t('Reading your receipt')}</Text>
         </View>
 
         <View style={styles.track}>
@@ -233,8 +235,8 @@ export default function ReceiptProcessingScreen() {
           </Animated.View>
         </View>
 
-        <Text style={styles.hangTight}>Hang tight</Text>
-        <Text style={styles.help}>We are reading the items and prices. You will check them next.</Text>
+        <Text style={styles.hangTight}>{t('Hang tight')}</Text>
+        <Text style={styles.help}>{t('We are reading the items and prices. You will check them next.')}</Text>
 
         <View style={styles.steps}>
           {STEPS.map((label, index) => {
@@ -242,24 +244,25 @@ export default function ReceiptProcessingScreen() {
             return (
               <View key={label} style={styles.stepRow}>
                 <StepIcon state={state} />
-                <Text style={[styles.stepText, state === 'pending' && styles.stepTextPending]}>{label}</Text>
+                <Text style={[styles.stepText, state === 'pending' && styles.stepTextPending]}>{t(label)}</Text>
               </View>
             );
           })}
         </View>
 
         <Pressable accessibilityRole="button" onPress={cancel} hitSlop={12} style={styles.cancel}>
-          <Text style={styles.cancelText}>Cancel</Text>
+          <Text style={styles.cancelText}>{t('Cancel')}</Text>
         </Pressable>
       </View>
     </SafeAreaView>
   );
 }
 
-const styles = StyleSheet.create({
+const makeStyles = ({ PURPLE_DARK, PURPLE, INK, MUTED, BORDER, TRACK, BG, SURFACE, GREEN_TINT, SKELETON  }: Colors) =>
+  StyleSheet.create({
   safeArea: {
     flex: 1,
-    backgroundColor: '#fff',
+    backgroundColor: BG,
     alignItems: 'center',
   },
   content: {
@@ -300,7 +303,7 @@ const styles = StyleSheet.create({
     borderRadius: 20,
     borderWidth: 1,
     borderColor: BORDER,
-    backgroundColor: '#fff',
+    backgroundColor: SURFACE,
     overflow: 'hidden',
   },
   skeleton: {

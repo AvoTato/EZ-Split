@@ -1,6 +1,6 @@
 import { Ionicons } from '@expo/vector-icons';
 import { useLocalSearchParams, useRouter } from 'expo-router';
-import { useEffect, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
@@ -8,39 +8,41 @@ import { money, pctOf } from '../lib/format';
 import { goBack } from '../lib/navigation';
 import { getParsedReceipt, getSettlementSummarySession } from '../lib/receiptSession';
 import type { SettlementPerson } from '../lib/receiptSession';
+import { useColors, type Colors } from '../lib/theme';
+import { useT, t } from '../lib/i18n';
 
-const PURPLE = '#9B87F0';
-const PURPLE_DARK = '#5B3FD8';
-const PURPLE_TINT = '#F0ECFD';
-const INK = '#1A1530';
-const MUTED = '#6B6880';
-const BORDER = '#E6E3F0';
 const AVATAR_COLORS = ['#5B3FD8', '#0F766E', '#B45309', '#C2185B', '#0369A1', '#7C3AED'];
 
 const list = (names: string[]) =>
-  names.length <= 1 ? names.join('') : `${names.slice(0, -1).join(', ')} and ${names[names.length - 1]}`;
+  names.length <= 1
+    ? names.join('')
+    : t('{list} and {last}', { list: names.slice(0, -1).join(', '), last: names[names.length - 1] });
 
 function plainWords(person: SettlementPerson, count: number, total: number, hasFees: boolean) {
   const breakdown = person.breakdown;
   if (!breakdown) {
-    const fees = hasFees ? ' Service charge and tax are already included in the total.' : '';
-    return `The bill was split equally among ${count} ${count === 1 ? 'person' : 'people'}, so each person pays ${money(total / count)}.${fees}`;
+    const fees = hasFees ? ` ${t('Service charge and tax are already included in the total.')}` : '';
+    return `${t('The bill was split equally among {n} people, so each person pays {amount}.', { n: count, amount: money(total / count) })}${fees}`;
   }
   const items = breakdown.items
     .filter((item) => item.cost > 0)
-    .map((item) => (item.shares < item.outOf ? `${item.shares} of ${item.outOf} portions of ${item.name}` : item.name));
+    .map((item) => (item.shares < item.outOf ? t('{shares} of {outOf} portions of {name}', { shares: item.shares, outOf: item.outOf, name: item.name }) : item.name));
   const fees = [
-    breakdown.discount !== 0 ? 'discount' : null,
-    breakdown.serviceCharge !== 0 ? 'service charge' : null,
-    breakdown.tax !== 0 ? 'tax' : null,
+    breakdown.discount !== 0 ? t('discount') : null,
+    breakdown.serviceCharge !== 0 ? t('service charge') : null,
+    breakdown.tax !== 0 ? t('tax') : null,
   ].filter((fee): fee is string => fee !== null);
-  const had = items.length > 0 ? `${person.name} had ${list(items)}.` : `${person.name} had no dishes.`;
+  const had = items.length > 0 ? t('{name} had {list}.', { name: person.name, list: list(items) }) : t('{name} had no dishes.', { name: person.name });
   if (fees.length === 0) return had;
   const subject = list(fees);
-  return `${had} ${subject[0].toUpperCase()}${subject.slice(1)} ${fees.length > 1 ? 'are' : 'is'} shared in proportion to what they had.`;
+  return `${had} ${fees.length > 1 ? t('{subject} are shared in proportion to what they had.', { subject: subject[0].toUpperCase() + subject.slice(1) }) : t('{subject} is shared in proportion to what they had.', { subject: subject[0].toUpperCase() + subject.slice(1) })}`;
 }
 
 export default function HowSplitScreen() {
+  const t = useT();
+  const colors = useColors();
+  const { PURPLE_DARK, INK } = colors;
+  const styles = useMemo(() => makeStyles(colors), [colors]);
   const router = useRouter();
   const params = useLocalSearchParams<{ personId?: string; title?: string }>();
   const [session] = useState(() => getSettlementSummarySession());
@@ -70,7 +72,7 @@ export default function HowSplitScreen() {
   if (breakdown) {
     breakdown.items.forEach((item) =>
       rows.push({
-        label: item.shares < item.outOf ? `${item.name} · ${item.shares} of ${item.outOf} portions` : item.name,
+        label: item.shares < item.outOf ? `${item.name} · ${t('{shares} of {outOf} portions', { shares: item.shares, outOf: item.outOf })}` : item.name,
         value: money(item.cost),
       }),
     );
@@ -78,37 +80,37 @@ export default function HowSplitScreen() {
 
   const feeRows: { label: string; value: string }[] = [];
   if (breakdown) {
-    feeRows.push({ label: 'Items', value: money(breakdown.itemsSubtotal) });
+    feeRows.push({ label: t('Items'), value: money(breakdown.itemsSubtotal) });
     if (breakdown.discount !== 0)
-      feeRows.push({ label: 'Discount · on their items', value: `- ${money(breakdown.discount)}` });
+      feeRows.push({ label: `${t('Discount')} · ${t('on their items')}`, value: `- ${money(breakdown.discount)}` });
     if (breakdown.serviceCharge !== 0)
       feeRows.push({
-        label: `Service${servicePct !== null ? ` ${servicePct}%` : ''} · on their items`,
+        label: `${t('Service')}${servicePct !== null ? ` ${servicePct}%` : ''} · ${t('on their items')}`,
         value: `+ ${money(breakdown.serviceCharge)}`,
       });
     if (breakdown.tax !== 0)
       feeRows.push({
-        label: `SST${taxPct !== null ? ` ${taxPct}%` : ''} · on their items`,
+        label: `${t('SST')}${taxPct !== null ? ` ${taxPct}%` : ''} · ${t('on their items')}`,
         value: `+ ${money(breakdown.tax)}`,
       });
-    feeRows.push({ label: 'Rounding', value: money(breakdown.rounding) });
+    feeRows.push({ label: t('Rounding'), value: money(breakdown.rounding) });
   } else {
-    feeRows.push({ label: 'Bill total', value: money(total) });
-    feeRows.push({ label: 'Split equally', value: `÷ ${people.length}` });
+    feeRows.push({ label: t('Bill total'), value: money(total) });
+    feeRows.push({ label: t('Split equally'), value: `÷ ${people.length}` });
   }
 
   return (
     <SafeAreaView style={styles.safeArea}>
       <View style={styles.page}>
         <View style={styles.header}>
-          <Pressable accessibilityRole="button" accessibilityLabel="Go back" onPress={() => goBack(router)} hitSlop={12}>
+          <Pressable accessibilityRole="button" accessibilityLabel={t('Go back')} onPress={() => goBack(router)} hitSlop={12}>
             <Ionicons name="chevron-back" size={28} color={INK} />
           </Pressable>
           <View style={styles.headerCopy}>
             <Text style={styles.eyebrow} numberOfLines={1}>
               {title}
             </Text>
-            <Text style={styles.headerTitle}>How this was split</Text>
+            <Text style={styles.headerTitle}>{t('How this was split')}</Text>
           </View>
         </View>
 
@@ -136,7 +138,7 @@ export default function HowSplitScreen() {
                 <Text style={styles.avatarText}>{person.name.trim().charAt(0).toUpperCase() || '?'}</Text>
               </View>
               <Text style={styles.cardTitle} numberOfLines={1}>
-                {person.name}’s share
+                {t('{name}’s share', { name: person.name })}
               </Text>
             </View>
 
@@ -155,7 +157,7 @@ export default function HowSplitScreen() {
             ))}
             <View style={styles.divider} />
             <View style={styles.paysRow}>
-              <Text style={styles.paysLabel}>{person.name} pays</Text>
+              <Text style={styles.paysLabel}>{t('{name} pays', { name: person.name })}</Text>
               <Text style={styles.paysValue}>{money(person.amount)}</Text>
             </View>
           </View>
@@ -163,7 +165,7 @@ export default function HowSplitScreen() {
           <View style={styles.plain}>
             <Ionicons name="sparkles-outline" size={24} color={PURPLE_DARK} />
             <View style={styles.plainCopy}>
-              <Text style={styles.plainTitle}>In plain words</Text>
+              <Text style={styles.plainTitle}>{t('In plain words')}</Text>
               <Text style={styles.plainText}>{plainWords(person, people.length, total, hasFees)}</Text>
             </View>
           </View>
@@ -175,7 +177,7 @@ export default function HowSplitScreen() {
             onPress={() => goBack(router)}
             style={({ pressed }) => [styles.doneButton, pressed && styles.pressed]}
           >
-            <Text style={styles.doneText}>Done</Text>
+            <Text style={styles.doneText}>{t('Done')}</Text>
           </Pressable>
         </View>
       </View>
@@ -183,10 +185,11 @@ export default function HowSplitScreen() {
   );
 }
 
-const styles = StyleSheet.create({
+const makeStyles = ({ PURPLE_DARK, PURPLE_TINT, PURPLE, ON_PURPLE, INK, MUTED, BORDER, BG, SURFACE  }: Colors) =>
+  StyleSheet.create({
   safeArea: {
     flex: 1,
-    backgroundColor: '#fff',
+    backgroundColor: BG,
     alignItems: 'center',
   },
   page: {
@@ -229,7 +232,7 @@ const styles = StyleSheet.create({
     borderRadius: 999,
     borderWidth: 2,
     borderColor: PURPLE,
-    backgroundColor: '#fff',
+    backgroundColor: SURFACE,
     paddingVertical: 16,
     paddingHorizontal: 28,
   },
@@ -242,11 +245,11 @@ const styles = StyleSheet.create({
     color: PURPLE_DARK,
   },
   chipTextSelected: {
-    color: INK,
+    color: ON_PURPLE,
   },
   card: {
     marginTop: 24,
-    backgroundColor: '#fff',
+    backgroundColor: SURFACE,
     borderRadius: 28,
     borderWidth: 1,
     borderColor: BORDER,
@@ -355,7 +358,7 @@ const styles = StyleSheet.create({
   doneText: {
     fontSize: 18,
     fontWeight: '800',
-    color: INK,
+    color: ON_PURPLE,
   },
   pressed: {
     opacity: 0.85,

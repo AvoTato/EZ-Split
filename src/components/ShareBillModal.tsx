@@ -1,6 +1,6 @@
 import { Ionicons } from '@expo/vector-icons';
 import * as Clipboard from 'expo-clipboard';
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import {
   ActivityIndicator,
   Alert,
@@ -23,20 +23,14 @@ import { createShare, isCloudConfigured, shareUrl } from '../lib/cloud';
 import { CURRENCY, money } from '../lib/format';
 import type { SettlementSummarySession } from '../lib/receiptSession';
 import { TONES, TONE_LABELS, buildReminder, type Tone } from '../lib/reminders';
+import { getSettings } from '../lib/settings';
 import { billSnapshot, withShareLink } from '../lib/shareBill';
+import { useColors, type Colors } from '../lib/theme';
+import { useT } from '../lib/i18n';
 
-const PURPLE = '#9B87F0';
-const PURPLE_DARK = '#5B3FD8';
-const INK = '#1A1530';
-const PANEL = '#F8F7FB';
-const LINE = '#E6E3F0';
 const AVATAR_COLORS = ['#5B3FD8', '#0F766E', '#B45309', '#C2185B', '#0369A1', '#7C3AED'];
-const PURPLE_TINT = '#F1EDFD';
-const PILL_GRAY = '#EFEFEF';
-const MUTED = '#8A8A8A';
 const WHATSAPP_GREEN = '#25D366';
 const MESSAGES_BLUE = '#007AFF';
-const COPIED_GREEN = '#2E7D32';
 
 function buildShareText(session: SettlementSummarySession) {
   const lines = session.people.map((person) => {
@@ -64,10 +58,14 @@ type Mode = 'share' | 'remind';
 const AI_AVAILABLE = Boolean(process.env.EXPO_PUBLIC_API_URL && process.env.EXPO_PUBLIC_API_TOKEN);
 
 export default function ShareBillModal({ visible, onClose, session, title, remindOnly = false, onShareId }: Props) {
+  const t = useT();
+  const colors = useColors();
+  const { PURPLE_DARK, PURPLE_TINT, PURPLE, PILL_GRAY, GREEN } = colors;
+  const styles = useMemo(() => makeStyles(colors), [colors]);
   const [chosenMode, setMode] = useState<Mode>('share');
   const mode: Mode = remindOnly ? 'remind' : chosenMode;
   const [selectedId, setSelectedId] = useState<string | null>(null);
-  const [tone, setTone] = useState<Tone>('friendly');
+  const [tone, setTone] = useState<Tone>(() => getSettings().tone);
   const [edited, setEdited] = useState<string | null>(null);
   const [rewriting, setRewriting] = useState(false);
   const [creatingLink, setCreatingLink] = useState(false);
@@ -149,7 +147,7 @@ export default function ShareBillModal({ visible, onClose, session, title, remin
       });
       setEdited(message);
     } catch {
-      Alert.alert('Could not rewrite', 'Try again in a moment, or edit the message yourself.');
+      Alert.alert(t('Could not rewrite'), t('Try again in a moment, or edit the message yourself.'));
     } finally {
       setRewriting(false);
     }
@@ -165,7 +163,7 @@ export default function ShareBillModal({ visible, onClose, session, title, remin
         await Share.share({ message: shareText });
       }
     } catch {
-      Alert.alert('Could not share', 'Please try another option.');
+      Alert.alert(t('Could not share'), t('Please try another option.'));
     }
   };
 
@@ -175,7 +173,7 @@ export default function ShareBillModal({ visible, onClose, session, title, remin
       const url = Platform.OS === 'ios' ? `sms:&body=${encoded}` : `sms:?body=${encoded}`;
       await Linking.openURL(url);
     } catch {
-      Alert.alert('Could not share', 'Please try another option.');
+      Alert.alert(t('Could not share'), t('Please try another option.'));
     }
   };
 
@@ -197,13 +195,13 @@ export default function ShareBillModal({ visible, onClose, session, title, remin
   };
 
   const copyLabel =
-    copyState === 'copied' ? 'Copied!' : copyState === 'failed' ? "Couldn't copy" : mode === 'share' && link ? 'Copy Link' : 'Copy Text';
+    copyState === 'copied' ? t('Copied!') : copyState === 'failed' ? t("Couldn't copy") : mode === 'share' && link ? t('Copy Link') : t('Copy Text');
 
   const handleMore = async () => {
     try {
       await Share.share({ message: shareText });
     } catch {
-      Alert.alert('Could not share', 'Please try another option.');
+      Alert.alert(t('Could not share'), t('Please try another option.'));
     }
   };
 
@@ -213,7 +211,7 @@ export default function ShareBillModal({ visible, onClose, session, title, remin
         <View style={[styles.channelCircle, { backgroundColor: WHATSAPP_GREEN }]}>
           <Ionicons name="logo-whatsapp" size={22} color="#fff" />
         </View>
-        <Text style={styles.channelLabel}>WhatsApp</Text>
+        <Text style={styles.channelLabel}>{t('WhatsApp')}</Text>
       </Pressable>
       <Pressable
         style={styles.channel}
@@ -221,7 +219,7 @@ export default function ShareBillModal({ visible, onClose, session, title, remin
         accessibilityRole="button"
         accessibilityLabel={copyLabel}
       >
-        <View style={[styles.channelCircle, { backgroundColor: copyState === 'copied' ? COPIED_GREEN : PURPLE }]}>
+        <View style={[styles.channelCircle, { backgroundColor: copyState === 'copied' ? GREEN : PURPLE }]}>
           <Ionicons name={copyState === 'copied' ? 'checkmark' : 'link'} size={22} color="#fff" />
         </View>
         <Text style={styles.channelLabel} accessibilityLiveRegion="polite">
@@ -232,13 +230,13 @@ export default function ShareBillModal({ visible, onClose, session, title, remin
         <View style={[styles.channelCircle, { backgroundColor: MESSAGES_BLUE }]}>
           <Ionicons name="chatbubble-ellipses" size={22} color="#fff" />
         </View>
-        <Text style={styles.channelLabel}>Messages</Text>
+        <Text style={styles.channelLabel}>{t('Messages')}</Text>
       </Pressable>
       <Pressable style={styles.channel} onPress={handleMore}>
         <View style={[styles.channelCircle, { backgroundColor: PILL_GRAY }]}>
-          <Ionicons name="ellipsis-horizontal" size={22} color="#000" />
+          <Ionicons name="ellipsis-horizontal" size={22} color={colors.INK} />
         </View>
-        <Text style={styles.channelLabel}>More</Text>
+        <Text style={styles.channelLabel}>{t('More')}</Text>
       </Pressable>
     </View>
   );
@@ -249,19 +247,19 @@ export default function ShareBillModal({ visible, onClose, session, title, remin
         <View style={styles.remindCircle}>
           <Ionicons name="chatbubble-outline" size={26} color={PURPLE_DARK} />
         </View>
-        <Text style={styles.remindChannelLabel}>WhatsApp</Text>
+        <Text style={styles.remindChannelLabel}>{t('WhatsApp')}</Text>
       </Pressable>
       <Pressable style={styles.channel} onPress={handleMessages}>
         <View style={styles.remindCircle}>
           <Ionicons name="chatbubble-outline" size={26} color={PURPLE_DARK} />
         </View>
-        <Text style={styles.remindChannelLabel}>Messages</Text>
+        <Text style={styles.remindChannelLabel}>{t('Messages')}</Text>
       </Pressable>
       <Pressable style={styles.channel} onPress={handleMore}>
         <View style={styles.remindCircle}>
           <Ionicons name="ellipsis-horizontal" size={26} color={PURPLE_DARK} />
         </View>
-        <Text style={styles.remindChannelLabel}>More</Text>
+        <Text style={styles.remindChannelLabel}>{t('More')}</Text>
       </Pressable>
     </View>
   );
@@ -280,7 +278,7 @@ export default function ShareBillModal({ visible, onClose, session, title, remin
               contentContainerStyle={styles.sheetContent}
             >
               {remindOnly ? (
-                <Text style={styles.remindTitle}>Remind</Text>
+                <Text style={styles.remindTitle}>{t('Remind')}</Text>
               ) : (
                 <View style={styles.modeSwitch}>
                   {(['share', 'remind'] as const).map((value) => (
@@ -292,7 +290,7 @@ export default function ShareBillModal({ visible, onClose, session, title, remin
                       style={[styles.modeOption, mode === value && styles.modeOptionActive]}
                     >
                       <Text style={[styles.modeText, mode === value && styles.modeTextActive]}>
-                        {value === 'share' ? 'Share Bill' : 'Remind'}
+                        {value === 'share' ? t('Share Bill') : t('Remind')}
                       </Text>
                     </Pressable>
                   ))}
@@ -302,14 +300,14 @@ export default function ShareBillModal({ visible, onClose, session, title, remin
               {mode === 'share' ? (
                 <>
                   <Text style={styles.subtitle}>
-                    Let friends scan or select a channel below to split {money(total)}
+                    {t('Let friends scan or select a channel below to split {amount}', { amount: money(total) })}
                   </Text>
 
                   <View style={styles.qrBox}>
                     {creatingLink ? (
                       <View style={styles.qrPlaceholder}>
                         <ActivityIndicator color={PURPLE} />
-                        <Text style={styles.qrPlaceholderText}>Creating link…</Text>
+                        <Text style={styles.qrPlaceholderText}>{t('Creating link…')}</Text>
                       </View>
                     ) : (
                       <QRCode value={link ?? shareText} size={160} backgroundColor={PURPLE_TINT} />
@@ -318,13 +316,13 @@ export default function ShareBillModal({ visible, onClose, session, title, remin
                   <View style={styles.scanCaption}>
                     <Ionicons name="qr-code-outline" size={14} color={PURPLE} />
                     <Text style={styles.scanCaptionText}>
-                      {link ? 'Scan to see the bill and mark yourself paid' : 'Scan QR Code to Pay'}
+                      {link ? t('Scan to see the bill and mark yourself paid') : t('Scan QR Code to Pay')}
                     </Text>
                   </View>
 
                   <View style={styles.orRow}>
                     <View style={styles.orDivider} />
-                    <Text style={styles.orText}>OR SHARE VIA</Text>
+                    <Text style={styles.orText}>{t('OR SHARE VIA')}</Text>
                     <View style={styles.orDivider} />
                   </View>
 
@@ -334,11 +332,11 @@ export default function ShareBillModal({ visible, onClose, session, title, remin
                 <>
                   <Text style={styles.subtitle}>
                     {payer
-                      ? `Nudge someone who owes ${payer.name}`
-                      : 'Pick who to remind, then choose a tone'}
+                      ? t('Nudge someone who owes {name}', { name: payer.name })
+                      : t('Pick who to remind, then choose a tone')}
                   </Text>
 
-                  <Text style={styles.remindLabel}>WHO TO REMIND</Text>
+                  <Text style={styles.remindLabel}>{t('WHO TO REMIND')}</Text>
                   <View style={styles.remindChipRow}>
                     {candidates.map((person) => {
                       const selected = person.id === target.id;
@@ -347,7 +345,7 @@ export default function ShareBillModal({ visible, onClose, session, title, remin
                         <Pressable
                           key={person.id}
                           accessibilityRole="button"
-                          accessibilityLabel={`Remind ${person.name}`}
+                          accessibilityLabel={t('Remind {name}', { name: person.name })}
                           accessibilityState={{ selected }}
                           onPress={() => pickPerson(person.id)}
                           style={[styles.personChip, selected && styles.personChipActive]}
@@ -363,7 +361,7 @@ export default function ShareBillModal({ visible, onClose, session, title, remin
                     })}
                   </View>
 
-                  <Text style={styles.remindLabel}>TONE</Text>
+                  <Text style={styles.remindLabel}>{t('TONE')}</Text>
                   <View style={styles.remindChipRow}>
                     {TONES.map((value) => {
                       const selected = value === tone;
@@ -376,7 +374,7 @@ export default function ShareBillModal({ visible, onClose, session, title, remin
                           style={[styles.toneChip, selected && styles.toneChipActive]}
                         >
                           <Text style={[styles.toneChipText, selected && styles.toneChipTextActive]}>
-                            {TONE_LABELS[value]}
+                            {t(TONE_LABELS[value])}
                           </Text>
                         </Pressable>
                       );
@@ -384,7 +382,7 @@ export default function ShareBillModal({ visible, onClose, session, title, remin
                   </View>
 
                   <TextInput
-                    accessibilityLabel="Reminder message"
+                    accessibilityLabel={t('Reminder message')}
                     style={styles.remindMessage}
                     value={reminderText}
                     onChangeText={setEdited}
@@ -395,7 +393,7 @@ export default function ShareBillModal({ visible, onClose, session, title, remin
                   {AI_AVAILABLE && (
                     <Pressable
                       accessibilityRole="button"
-                      accessibilityLabel="Rewrite message with AI"
+                      accessibilityLabel={t('Rewrite message with AI')}
                       disabled={rewriting}
                       onPress={handleRewrite}
                       style={({ pressed }) => [styles.rewriteButton, (pressed || rewriting) && styles.pressed]}
@@ -405,25 +403,25 @@ export default function ShareBillModal({ visible, onClose, session, title, remin
                       ) : (
                         <Ionicons name="sparkles-outline" size={22} color={PURPLE_DARK} />
                       )}
-                      <Text style={styles.rewriteText}>Rewrite with AI</Text>
+                      <Text style={styles.rewriteText}>{t('Rewrite with AI')}</Text>
                     </Pressable>
                   )}
 
                   <View style={styles.orRow}>
                     <View style={styles.orDivider} />
-                    <Text style={styles.remindOr}>SEND VIA</Text>
+                    <Text style={styles.remindOr}>{t('SEND VIA')}</Text>
                     <View style={styles.orDivider} />
                   </View>
 
                   {remindChannels}
                 </>
               ) : (
-                <Text style={styles.emptyText}>Nobody still owes anything, so there is no one to remind.</Text>
+                <Text style={styles.emptyText}>{t('Nobody still owes anything, so there is no one to remind.')}</Text>
               )}
 
               {!(mode === 'remind' && target) && (
                 <Pressable style={styles.cancelButton} onPress={close}>
-                  <Text style={styles.cancelButtonText}>Cancel</Text>
+                  <Text style={styles.cancelButtonText}>{t('Cancel')}</Text>
                 </Pressable>
               )}
             </ScrollView>
@@ -434,20 +432,21 @@ export default function ShareBillModal({ visible, onClose, session, title, remin
   );
 }
 
-const styles = StyleSheet.create({
+const makeStyles = ({ PURPLE_DARK, PURPLE_TINT, PURPLE, INK, MUTED, BORDER, PANEL, SURFACE, PILL_GRAY, OVERLAY  }: Colors) =>
+  StyleSheet.create({
   flex: {
     flex: 1,
   },
   backdrop: {
     flex: 1,
-    backgroundColor: 'rgba(0, 0, 0, 0.4)',
+    backgroundColor: OVERLAY,
     justifyContent: 'flex-end',
     alignItems: 'center',
   },
   sheet: {
     width: '100%',
     maxWidth: 480,
-    backgroundColor: '#fff',
+    backgroundColor: SURFACE,
     borderTopLeftRadius: 20,
     borderTopRightRadius: 20,
     maxHeight: '92%',
@@ -460,7 +459,7 @@ const styles = StyleSheet.create({
   remindTitle: {
     fontSize: 18,
     fontWeight: '700',
-    color: '#000',
+    color: INK,
     textAlign: 'center',
   },
   modeSwitch: {
@@ -481,7 +480,7 @@ const styles = StyleSheet.create({
   modeText: {
     fontSize: 15,
     fontWeight: '700',
-    color: '#000',
+    color: INK,
   },
   modeTextActive: {
     color: '#fff',
@@ -510,7 +509,7 @@ const styles = StyleSheet.create({
   chipText: {
     fontSize: 14,
     fontWeight: '600',
-    color: '#000',
+    color: INK,
   },
   chipTextActive: {
     color: '#fff',
@@ -518,12 +517,12 @@ const styles = StyleSheet.create({
   messageInput: {
     minHeight: 96,
     borderWidth: 1,
-    borderColor: '#E5E5E5',
-    backgroundColor: '#FAFAFA',
+    borderColor: BORDER,
+    backgroundColor: PANEL,
     borderRadius: 14,
     padding: 12,
     fontSize: 15,
-    color: '#000',
+    color: INK,
     textAlignVertical: 'top',
   },
   aiButton: {
@@ -544,7 +543,7 @@ const styles = StyleSheet.create({
   remindLabel: {
     fontSize: 16,
     fontWeight: '800',
-    color: '#6B6880',
+    color: MUTED,
     letterSpacing: 0.3,
     marginBottom: 12,
   },
@@ -560,8 +559,8 @@ const styles = StyleSheet.create({
     gap: 12,
     borderRadius: 999,
     borderWidth: 2,
-    borderColor: LINE,
-    backgroundColor: '#fff',
+    borderColor: BORDER,
+    backgroundColor: SURFACE,
     paddingVertical: 8,
     paddingLeft: 8,
     paddingRight: 20,
@@ -591,7 +590,7 @@ const styles = StyleSheet.create({
     borderRadius: 999,
     borderWidth: 2,
     borderColor: PURPLE,
-    backgroundColor: '#fff',
+    backgroundColor: SURFACE,
     paddingVertical: 14,
     paddingHorizontal: 22,
   },
@@ -609,7 +608,7 @@ const styles = StyleSheet.create({
   remindMessage: {
     minHeight: 120,
     borderWidth: 1,
-    borderColor: LINE,
+    borderColor: BORDER,
     backgroundColor: PANEL,
     borderRadius: 20,
     paddingVertical: 14,
@@ -628,7 +627,7 @@ const styles = StyleSheet.create({
     borderRadius: 20,
     borderWidth: 2,
     borderColor: PURPLE,
-    backgroundColor: '#fff',
+    backgroundColor: SURFACE,
     paddingVertical: 18,
   },
   rewriteText: {
@@ -639,7 +638,7 @@ const styles = StyleSheet.create({
   remindOr: {
     fontSize: 16,
     fontWeight: '800',
-    color: '#6B6880',
+    color: MUTED,
     letterSpacing: 0.3,
   },
   remindCircle: {
@@ -714,7 +713,7 @@ const styles = StyleSheet.create({
   orDivider: {
     flex: 1,
     height: 1,
-    backgroundColor: '#E5E5E5',
+    backgroundColor: BORDER,
   },
   orText: {
     fontSize: 12,
@@ -740,7 +739,7 @@ const styles = StyleSheet.create({
   },
   channelLabel: {
     fontSize: 12,
-    color: '#000',
+    color: INK,
     textAlign: 'center',
   },
   cancelButton: {
@@ -753,6 +752,6 @@ const styles = StyleSheet.create({
   cancelButtonText: {
     fontSize: 15,
     fontWeight: '600',
-    color: '#000',
+    color: INK,
   },
 });

@@ -1,13 +1,12 @@
 import { Ionicons } from '@expo/vector-icons';
 import { useFocusEffect, useLocalSearchParams, useRouter } from 'expo-router';
-import { useCallback, useEffect, useRef, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
 import ShareBillModal from '../components/ShareBillModal';
 import {
   billSections,
-  overallProgress,
   reminderSessionFor,
   type BillFriend,
   type BillSection,
@@ -16,13 +15,11 @@ import { money } from '../lib/format';
 import { setSharePaid } from '../lib/cloud';
 import { getGroup, migrateLegacyPayments, pullSharedPaid, updateSettlementSummary } from '../lib/groups';
 import { goBack } from '../lib/navigation';
-import { setGroupSettlementSetup, setSettlementSummarySession } from '../lib/receiptSession';
+import { setGroupSettlementSetup, setSettlementSummarySession, type SettlementPerson } from '../lib/receiptSession';
+import { useColors, type Colors } from '../lib/theme';
+import { useT, localeTag } from '../lib/i18n';
 
-const PURPLE = '#9B87F0';
-const PURPLE_TINT = '#F1EDFD';
-const MUTED = '#8A8A8A';
-const GREEN = '#2E7D32';
-const GREEN_TINT = '#E6F4EA';
+const AVATAR_COLORS = ['#5B3FD8', '#0F766E', '#B45309', '#C2185B', '#0369A1', '#7C3AED'];
 const SNACKBAR_MS = 6000;
 
 type Toast = { message: string; onUndo?: () => void };
@@ -30,16 +27,27 @@ type RemindTarget = { section: BillSection; friend: BillFriend };
 
 function formatBillDate(timestamp: number) {
   const date = new Date(timestamp);
-  return date.toLocaleDateString(undefined, { day: 'numeric', month: 'short', year: 'numeric' });
+  return date.toLocaleDateString(localeTag(), { day: 'numeric', month: 'short' });
 }
 
+const isYou = (friend: BillFriend) => friend.id === 'you' || friend.name.trim().toLowerCase() === 'you';
+const initialOf = (name: string, index: number) => name.trim().charAt(0).toUpperCase() || String(index + 1);
+
 export default function GroupBalancesScreen() {
+  const t = useT();
+  const colors = useColors();
+  const { PURPLE_DARK, INK, MUTED, GREEN, AMBER } = colors;
+  const styles = useMemo(() => makeStyles(colors), [colors]);
   const router = useRouter();
   const { groupId } = useLocalSearchParams<{ groupId?: string }>();
   const [groupName, setGroupName] = useState('');
   const [sections, setSections] = useState<BillSection[]>([]);
+  const [memberIds, setMemberIds] = useState<string[]>([]);
+  const [billPeople, setBillPeople] = useState<Record<string, SettlementPerson[]>>({});
   const [toast, setToast] = useState<Toast | null>(null);
-  const [remindFor, setRemindFor] = useState<RemindTarget | null>(null);
+  const [remindQueue, setRemindQueue] = useState<RemindTarget[]>([]);
+  const remindFor = remindQueue[0] ?? null;
+  const setRemindFor = (target: RemindTarget) => setRemindQueue([target]);
   const toastTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   const showToast = useCallback((next: Toast) => {
@@ -53,13 +61,25 @@ export default function GroupBalancesScreen() {
     const { unmatched } = migrateLegacyPayments(groupId);
     const group = getGroup(groupId);
     setGroupName(group?.name ?? '');
-    setSections(billSections(group?.settlements ?? []));
+    const bills = group?.settlements ?? [];
+    setMemberIds((group?.members ?? []).map((member) => member.id));
+    setBillPeople(Object.fromEntries(bills.map((bill) => [bill.id, bill.summary.people])));
+    setSections(
+      billSections(bills).map((section) => {
+        const order = bills.find((bill) => bill.id === section.id)?.summary.people.map((person) => person.id) ?? [];
+        const rank = (id: string) => {
+          const at = order.indexOf(id);
+          return at === -1 ? order.length : at;
+        };
+        return { ...section, friends: [...section.friends].sort((a, b) => rank(a.id) - rank(b.id)) };
+      }),
+    );
     if (unmatched > 0) {
       showToast({
-        message: `${unmatched} earlier ${unmatched === 1 ? 'payment' : 'payments'} couldn't be matched to a settlement`,
+        message: unmatched === 1 ? t("1 earlier payment couldn't be matched to a settlement") : t("{n} earlier payments couldn't be matched to a settlement", { n: unmatched }),
       });
     }
-  }, [groupId, showToast]);
+  }, [groupId, showToast, t]);
 
   useFocusEffect(load);
 
@@ -100,12 +120,26 @@ export default function GroupBalancesScreen() {
     load();
   };
 
+  const setPayer = (section: BillSection, person: SettlementPerson) => {
+    if (!groupId) return;
+    updateSettlementSummary(groupId, section.id, { paidBy: person.id });
+    load();
+    showToast({
+      message: t('{name} paid upfront for {bill}', { name: person.name, bill: section.name }),
+      onUndo: () => {
+        updateSettlementSummary(groupId, section.id, { paidBy: undefined });
+        load();
+        setToast(null);
+      },
+    });
+  };
+
   const togglePaid = (section: BillSection, friend: BillFriend) => {
     const nextPaid = !friend.paidBack;
     setPaidBack(section, friend, nextPaid);
     if (nextPaid && section.payer) {
       showToast({
-        message: `${friend.name} paid ${section.payer.name} ${money(friend.amount)}`,
+        message: t('{name} paid {payer} {amount}', { name: friend.name, payer: section.payer.name, amount: money(friend.amount) }),
         onUndo: () => {
           setPaidBack(section, friend, false);
           setToast(null);
@@ -123,7 +157,69 @@ export default function GroupBalancesScreen() {
     router.push({ pathname: '/settlement-summary', params: { groupId, settlementId: bill.id } });
   };
 
-  const progress = overallProgress(sections);
+  const openSections = sections.filter((section) => !section.allPaid);
+  const settledSections = sections.filter((section) => section.allPaid);
+  const stillToCollect = openSections.reduce((sum, section) => sum + Math.round(section.remaining * 100), 0) / 100;
+  const unpaidTargets: RemindTarget[] = openSections.flatMap((section) =>
+    section.payer ? section.friends.filter((friend) => !friend.paidBack).map((friend) => ({ section, friend })) : [],
+  );
+  const owingPeople = new Set(unpaidTargets.map((target) => target.friend.id)).size;
+
+  const colorIndex = (id: string, fallback: number) => {
+    const at = memberIds.indexOf(id);
+    return at === -1 ? fallback : at;
+  };
+
+  const renderFriend = (section: BillSection, friend: BillFriend, index: number) => (
+    <View key={friend.id} style={styles.friendRow}>
+      <View style={[styles.avatar, { backgroundColor: AVATAR_COLORS[colorIndex(friend.id, index) % AVATAR_COLORS.length] }]}>
+        <Text style={styles.avatarText}>{initialOf(friend.name, index)}</Text>
+      </View>
+      <Pressable
+        accessibilityRole="button"
+        accessibilityLabel={friend.paidBack ? t('{name} has paid', { name: friend.name }) : t('Mark {name} as paid', { name: friend.name })}
+        disabled={friend.paidBack}
+        onPress={() => togglePaid(section, friend)}
+        style={styles.friendInfo}
+      >
+        <Text style={styles.friendName} numberOfLines={1}>
+          {friend.name}
+        </Text>
+        <Text style={[styles.friendStatus, { color: friend.paidBack ? GREEN : AMBER }]}>
+          {friend.paidBack ? t('Paid back') : t('Not paid')}
+        </Text>
+      </Pressable>
+      <Text style={[styles.friendAmount, friend.paidBack && styles.friendAmountPaid]}>{money(friend.amount)}</Text>
+      {friend.paidBack ? (
+        <Pressable
+          accessibilityRole="button"
+          accessibilityLabel={t('{name} has paid. Tap to undo', { name: friend.name })}
+          onPress={() => togglePaid(section, friend)}
+          style={styles.checkCircle}
+        >
+          <Ionicons name="checkmark" size={20} color={GREEN} />
+        </Pressable>
+      ) : isYou(friend) ? (
+        <Pressable
+          accessibilityRole="button"
+          accessibilityLabel={t('Mark {name} as paid', { name: friend.name })}
+          onPress={() => togglePaid(section, friend)}
+          style={({ pressed }) => [styles.markPaidButton, pressed && styles.pressed]}
+        >
+          <Text style={styles.markPaidText}>{t('Mark paid')}</Text>
+        </Pressable>
+      ) : (
+        <Pressable
+          accessibilityRole="button"
+          accessibilityLabel={t('Remind {name} to pay {payer}', { name: friend.name, payer: section.payer?.name ?? '' })}
+          onPress={() => setRemindFor({ section, friend })}
+          style={({ pressed }) => [styles.remindButton, pressed && styles.pressed]}
+        >
+          <Text style={styles.remindText}>{t('Remind')}</Text>
+        </Pressable>
+      )}
+    </View>
+  );
 
   return (
     <SafeAreaView style={styles.safeArea}>
@@ -131,137 +227,178 @@ export default function GroupBalancesScreen() {
         <View style={styles.header}>
           <Pressable
             accessibilityRole="button"
-            accessibilityLabel="Go back"
+            accessibilityLabel={t('Go back')}
             onPress={() => goBack(router, '/(tabs)/groups')}
-            style={({ pressed }) => [styles.backButton, pressed && styles.pressed]}
+            hitSlop={12}
           >
-            <Ionicons name="chevron-back" size={26} color="#000" />
+            <Ionicons name="chevron-back" size={28} color={INK} />
           </Pressable>
           <View style={styles.headerText}>
-            <Text style={styles.headerTitle} numberOfLines={1}>
-              Balances
-            </Text>
             {groupName.length > 0 && (
               <Text style={styles.headerSubtitle} numberOfLines={1}>
                 {groupName}
               </Text>
             )}
+            <Text style={styles.headerTitle} numberOfLines={1}>{t('Balances')}</Text>
           </View>
         </View>
 
         <ScrollView contentContainerStyle={styles.content} showsVerticalScrollIndicator={false}>
-          <View style={styles.infoCard}>
-            <Ionicons name="receipt-outline" size={20} color={PURPLE} />
-            <Text style={styles.infoText}>
-              {sections.length === 0
-                ? 'No settlements yet. Save one to this group to track who has paid.'
-                : 'Each settlement shows who has paid the upfront payer back and who hasn’t.'}
-            </Text>
-          </View>
-
-          {progress.total > 0 && (
-            <View style={styles.progressBlock}>
-              <View style={styles.progressTrack}>
-                <View style={[styles.progressFill, { width: `${Math.round(progress.fraction * 100)}%` }]} />
-              </View>
-              <Text style={styles.progressText}>
-                {money(progress.paid)} of {money(progress.total)} paid back
-              </Text>
-            </View>
-          )}
-
-          {sections.map((section) => (
-            <View key={section.id} style={styles.sectionCard}>
-              <View style={styles.sectionHeader}>
-                <View style={styles.sectionTitleBlock}>
-                  <Text style={styles.sectionTitle} numberOfLines={2}>
-                    {section.name}
+          <View style={styles.summary}>
+            {sections.length === 0 ? (
+              <Text style={styles.summaryEmpty}>{t('No settlements yet. Save one to this group to track who has paid.')}</Text>
+            ) : stillToCollect > 0 ? (
+              <>
+                <View style={styles.summaryCopy}>
+                  <Text style={styles.summaryLabel}>{t('Still to collect')}</Text>
+                  <Text style={styles.summaryAmount}>{money(stillToCollect)}</Text>
+                  <Text style={styles.summarySub}>
+                    {owingPeople === 1 ? t('1 person') : t('{n} people', { n: owingPeople })} ·{' '}
+                    {openSections.length === 1 ? t('1 open settlement') : t('{n} open settlements', { n: openSections.length })}
                   </Text>
-                  <Text style={styles.sectionDate}>{formatBillDate(section.createdAt)}</Text>
                 </View>
-                {section.hasPayer && (
-                  <View style={[styles.badge, section.allPaid && styles.badgeDone]}>
-                    {section.allPaid && <Ionicons name="checkmark" size={14} color={GREEN} />}
-                    <Text style={[styles.badgeText, section.allPaid && styles.badgeTextDone]}>
-                      {section.allPaid
-                        ? 'All paid back'
-                        : `${section.paidBackCount} of ${section.friends.length} paid back`}
-                    </Text>
-                  </View>
-                )}
-              </View>
-
-              {section.payer ? (
-                <>
-                  <Text style={styles.upfrontText}>
-                    <Text style={styles.strong}>{section.payer.name}</Text> paid upfront · {money(section.total)}
-                  </Text>
-
-                  <View style={styles.friendList}>
-                    {section.friends.map((friend) => (
-                      <View key={friend.id} style={styles.friendRow}>
-                        <View style={styles.friendInfo}>
-                          <Text style={styles.friendName} numberOfLines={1}>
-                            {friend.name}
-                          </Text>
-                          <Text style={styles.friendAmount}>{money(friend.amount)}</Text>
-                        </View>
-                        {!friend.paidBack && (
-                          <Pressable
-                            accessibilityRole="button"
-                            accessibilityLabel={`Remind ${friend.name} to pay ${section.payer?.name}`}
-                            onPress={() => setRemindFor({ section, friend })}
-                            style={({ pressed }) => [styles.remindButton, pressed && styles.pressed]}
-                          >
-                            <Ionicons name="paper-plane-outline" size={14} color={PURPLE} />
-                            <Text style={styles.remindButtonText}>Remind</Text>
-                          </Pressable>
-                        )}
-                        <Pressable
-                          accessibilityRole="button"
-                          accessibilityLabel={
-                            friend.paidBack
-                              ? `${friend.name} has paid. Tap to undo`
-                              : `Mark ${friend.name} as paid`
-                          }
-                          accessibilityState={{ selected: friend.paidBack }}
-                          onPress={() => togglePaid(section, friend)}
-                          style={({ pressed }) => [
-                            styles.paidToggle,
-                            friend.paidBack && styles.paidToggleOn,
-                            pressed && styles.pressed,
-                          ]}
-                        >
-                          {friend.paidBack && <Ionicons name="checkmark" size={14} color={GREEN} />}
-                          <Text style={[styles.paidToggleText, friend.paidBack && styles.paidToggleTextOn]}>
-                            {friend.paidBack ? 'Paid' : 'Not paid'}
-                          </Text>
-                        </Pressable>
-                      </View>
-                    ))}
-                  </View>
-
-                  {section.friends.length === 0 && (
-                    <Text style={styles.footerText}>Nobody else owes anything on this settlement.</Text>
-                  )}
-                  {section.remaining > 0 && (
-                    <Text style={styles.footerText}>{money(section.remaining)} still owed</Text>
-                  )}
-                </>
-              ) : (
-                <View style={styles.noPayerBlock}>
-                  <Text style={styles.noPayerText}>Pick who paid upfront to track payments.</Text>
+                {unpaidTargets.length > 0 && (
                   <Pressable
                     accessibilityRole="button"
-                    accessibilityLabel={`Open ${section.name}`}
-                    onPress={() => openBill(section)}
-                    style={({ pressed }) => [styles.openButton, pressed && styles.pressed]}
+                    accessibilityLabel={t("Remind everyone who hasn't paid")}
+                    onPress={() => setRemindQueue(unpaidTargets)}
+                    style={({ pressed }) => [styles.remindAll, pressed && styles.pressed]}
                   >
-                    <Text style={styles.openButtonText}>Open</Text>
+                    <Ionicons name="notifications-outline" size={20} color={PURPLE_DARK} />
+                    <Text style={styles.remindAllText}>{t('Remind all')}</Text>
                   </Pressable>
+                )}
+              </>
+            ) : openSections.length > 0 ? (
+              <View style={styles.summaryCopy}>
+                <Text style={styles.summaryLabel}>{t('Who paid upfront?')}</Text>
+                <Text style={styles.summarySub}>{t('Pick who paid on each open settlement so we can track who owes what.')}</Text>
+              </View>
+            ) : (
+              <View style={styles.summaryCopy}>
+                <Text style={styles.summaryLabel}>{t('All settled')}</Text>
+                <Text style={styles.summarySub}>{t('Everyone has paid back.')}</Text>
+              </View>
+            )}
+          </View>
+
+          {openSections.length > 0 && <Text style={styles.sectionLabel}>{t('OPEN')}</Text>}
+          {openSections.map((section) => {
+            const paidAmount = section.friends
+              .filter((friend) => friend.paidBack)
+              .reduce((sum, friend) => sum + Math.round(friend.amount * 100), 0);
+            const totalAmount = section.friends.reduce((sum, friend) => sum + Math.round(friend.amount * 100), 0);
+            const fraction = totalAmount === 0 ? 0 : paidAmount / totalAmount;
+            return (
+              <View key={section.id} style={styles.sectionCard}>
+                <View style={styles.sectionHeader}>
+                  <View style={styles.sectionTitleBlock}>
+                    <Text style={styles.sectionTitle} numberOfLines={2}>
+                      {section.name}
+                    </Text>
+                    <Text style={styles.sectionDate}>
+                      {formatBillDate(section.createdAt)}
+                      {section.payer ? ` · ${t('{name} paid upfront', { name: section.payer.name })}` : ''}
+                    </Text>
+                  </View>
+                  {section.hasPayer ? (
+                    <View style={styles.badge}>
+                      <Text style={styles.badgeText}>
+                        {t('{n} of {total} paid', { n: section.paidBackCount, total: section.friends.length })}
+                      </Text>
+                    </View>
+                  ) : (
+                    <View style={[styles.badge, styles.badgeMuted]}>
+                      <Text style={[styles.badgeText, { color: MUTED }]}>{t('Payer needed')}</Text>
+                    </View>
+                  )}
                 </View>
-              )}
-            </View>
+
+                {section.payer ? (
+                  <>
+                    <View style={styles.progressTrack}>
+                      <View style={[styles.progressFill, { width: `${Math.round(fraction * 100)}%` }]} />
+                    </View>
+                    <View>{section.friends.map((friend, index) => renderFriend(section, friend, index))}</View>
+                  </>
+                ) : (
+                  <>
+                    <Text style={styles.payerPrompt}>{t('Who paid upfront?')}</Text>
+                    <View style={styles.payerChips}>
+                      {(billPeople[section.id] ?? []).map((person, index) => (
+                        <Pressable
+                          key={person.id}
+                          accessibilityRole="button"
+                          accessibilityLabel={t('{name} paid upfront', { name: person.name })}
+                          onPress={() => setPayer(section, person)}
+                          style={({ pressed }) => [styles.payerChip, pressed && styles.pressed]}
+                        >
+                          <View
+                            style={[
+                              styles.payerChipAvatar,
+                              { backgroundColor: AVATAR_COLORS[colorIndex(person.id, index) % AVATAR_COLORS.length] },
+                            ]}
+                          >
+                            <Text style={styles.payerChipInitial}>{initialOf(person.name, index)}</Text>
+                          </View>
+                          <Text style={styles.payerChipText}>{person.name}</Text>
+                        </Pressable>
+                      ))}
+                    </View>
+                    <View>
+                      {(billPeople[section.id] ?? []).map((person, index) => (
+                        <View key={person.id} style={styles.friendRow}>
+                          <View
+                            style={[
+                              styles.avatar,
+                              { backgroundColor: AVATAR_COLORS[colorIndex(person.id, index) % AVATAR_COLORS.length] },
+                            ]}
+                          >
+                            <Text style={styles.avatarText}>{initialOf(person.name, index)}</Text>
+                          </View>
+                          <Text style={[styles.friendName, styles.friendInfo]} numberOfLines={1}>
+                            {person.name}
+                          </Text>
+                          <Text style={styles.friendAmount}>{money(person.amount)}</Text>
+                        </View>
+                      ))}
+                    </View>
+                  </>
+                )}
+
+                <Pressable
+                  accessibilityRole="button"
+                  accessibilityLabel={t('Open {name}', { name: section.name })}
+                  onPress={() => openBill(section)}
+                  style={({ pressed }) => [styles.openLink, pressed && styles.pressed]}
+                >
+                  <Text style={styles.openLinkText}>{t('Open settlement')}</Text>
+                  <Ionicons name="chevron-forward" size={18} color={PURPLE_DARK} />
+                </Pressable>
+              </View>
+            );
+          })}
+
+          {settledSections.length > 0 && <Text style={styles.sectionLabel}>{t('SETTLED')}</Text>}
+          {settledSections.map((section) => (
+            <Pressable
+              key={section.id}
+              accessibilityRole="button"
+              accessibilityLabel={t('Open {name}', { name: section.name })}
+              onPress={() => openBill(section)}
+              style={({ pressed }) => [styles.settledCard, pressed && styles.pressed]}
+            >
+              <View style={styles.settledCheck}>
+                <Ionicons name="checkmark" size={20} color={GREEN} />
+              </View>
+              <View style={styles.settledCopy}>
+                <Text style={styles.settledTitle} numberOfLines={1}>
+                  {section.name}
+                </Text>
+                <Text style={styles.settledSub}>{formatBillDate(section.createdAt)} · {t('All paid back')}</Text>
+              </View>
+              <Text style={styles.settledAmount}>{money(section.total)}</Text>
+            </Pressable>
           ))}
         </ScrollView>
 
@@ -277,7 +414,7 @@ export default function GroupBalancesScreen() {
               toName: remindFor.section.payer.name,
               amount: remindFor.friend.amount,
             })}
-            onClose={() => setRemindFor(null)}
+            onClose={() => setRemindQueue((prev) => prev.slice(1))}
           />
         )}
 
@@ -287,8 +424,8 @@ export default function GroupBalancesScreen() {
               {toast.message}
             </Text>
             {toast.onUndo && (
-              <Pressable accessibilityRole="button" accessibilityLabel="Undo" onPress={toast.onUndo} hitSlop={8}>
-                <Text style={styles.snackbarUndo}>Undo</Text>
+              <Pressable accessibilityRole="button" accessibilityLabel={t('Undo')} onPress={toast.onUndo} hitSlop={8}>
+                <Text style={styles.snackbarUndo}>{t('Undo')}</Text>
               </Pressable>
             )}
           </View>
@@ -298,101 +435,61 @@ export default function GroupBalancesScreen() {
   );
 }
 
-const styles = StyleSheet.create({
-  safeArea: { flex: 1, backgroundColor: '#fff', alignItems: 'center' },
+const makeStyles = ({ PURPLE_DARK, PURPLE, ON_PURPLE, INK, MUTED, BORDER, TRACK, BG, SURFACE, GREEN_TINT, GREEN, AMBER_TINT, AMBER  }: Colors) =>
+  StyleSheet.create({
+  safeArea: { flex: 1, backgroundColor: BG, alignItems: 'center' },
   page: { flex: 1, width: '100%', maxWidth: 480 },
-  header: { flexDirection: 'row', alignItems: 'center', gap: 12, paddingHorizontal: 20, paddingVertical: 16 },
-  backButton: { minWidth: 30, minHeight: 48, justifyContent: 'center' },
+  header: { flexDirection: 'row', alignItems: 'center', gap: 14, paddingHorizontal: 20, paddingTop: 12, paddingBottom: 14 },
   headerText: { flex: 1, minWidth: 0 },
-  headerTitle: { fontSize: 24, fontWeight: '600', color: '#171717' },
-  headerSubtitle: { fontSize: 14, color: '#696171', marginTop: 2 },
-  content: { paddingHorizontal: 20, paddingBottom: 96, gap: 16 },
-  infoCard: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 10,
-    padding: 14,
-    borderRadius: 14,
-    backgroundColor: PURPLE_TINT,
-  },
-  infoText: { flex: 1, fontSize: 14, color: '#171717' },
-  progressBlock: { gap: 6 },
-  progressTrack: { height: 8, borderRadius: 4, backgroundColor: '#E5E5E5', overflow: 'hidden' },
-  progressFill: { height: '100%', borderRadius: 4, backgroundColor: PURPLE },
-  progressText: { fontSize: 13, color: MUTED },
-  sectionCard: {
-    gap: 12,
-    padding: 18,
-    borderRadius: 16,
-    backgroundColor: '#fff',
-    boxShadow: '0px 2px 8px rgba(0, 0, 0, 0.08)',
-    elevation: 3,
-  },
+  headerSubtitle: { fontSize: 14, fontWeight: '700', color: MUTED },
+  headerTitle: { fontSize: 28, fontWeight: '800', color: INK, letterSpacing: -0.6 },
+  content: { paddingHorizontal: 20, paddingBottom: 96, gap: 14 },
+  summary: { flexDirection: 'row', alignItems: 'center', gap: 12, padding: 20, borderRadius: 26, backgroundColor: PURPLE },
+  summaryCopy: { flex: 1, minWidth: 0 },
+  summaryLabel: { fontSize: 15, fontWeight: '800', color: ON_PURPLE },
+  summaryAmount: { fontSize: 36, fontWeight: '800', color: ON_PURPLE, letterSpacing: -1 },
+  summarySub: { fontSize: 14, color: ON_PURPLE },
+  summaryEmpty: { flex: 1, fontSize: 15, lineHeight: 21, fontWeight: '700', color: ON_PURPLE },
+  remindAll: { height: 48, flexDirection: 'row', alignItems: 'center', gap: 8, paddingHorizontal: 18, borderRadius: 18, backgroundColor: SURFACE },
+  remindAllText: { fontSize: 16, fontWeight: '800', color: PURPLE_DARK },
+  sectionLabel: { fontSize: 14, fontWeight: '800', color: MUTED, letterSpacing: 0.4, marginTop: 6 },
+  sectionCard: { padding: 18, borderRadius: 24, borderWidth: 1, borderColor: BORDER, backgroundColor: SURFACE, gap: 12 },
   sectionHeader: { flexDirection: 'row', alignItems: 'flex-start', justifyContent: 'space-between', gap: 10 },
   sectionTitleBlock: { flex: 1, minWidth: 0, gap: 2 },
-  sectionTitle: { fontSize: 18, fontWeight: '700', color: '#000' },
-  sectionDate: { fontSize: 13, color: MUTED },
-  badge: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 4,
-    borderRadius: 12,
-    paddingVertical: 4,
-    paddingHorizontal: 10,
-    backgroundColor: '#EFEFEF',
-  },
-  badgeDone: { backgroundColor: GREEN_TINT },
-  badgeText: { fontSize: 12, fontWeight: '700', color: MUTED },
-  badgeTextDone: { color: GREEN },
-  upfrontText: { fontSize: 14, color: '#171717' },
-  strong: { fontWeight: '700' },
-  friendList: { gap: 4 },
-  friendRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 8,
-    paddingVertical: 8,
-    borderTopWidth: 1,
-    borderTopColor: '#EEE',
-  },
+  sectionTitle: { fontSize: 20, fontWeight: '800', color: INK, letterSpacing: -0.3 },
+  sectionDate: { fontSize: 14, color: MUTED },
+  badge: { borderRadius: 14, paddingVertical: 7, paddingHorizontal: 12, backgroundColor: AMBER_TINT },
+  badgeText: { fontSize: 14, fontWeight: '800', color: AMBER },
+  progressTrack: { height: 6, borderRadius: 3, backgroundColor: TRACK, overflow: 'hidden' },
+  progressFill: { height: '100%', borderRadius: 3, backgroundColor: GREEN },
+  friendRow: { flexDirection: 'row', alignItems: 'center', gap: 12, paddingVertical: 11, borderTopWidth: 1, borderTopColor: BORDER },
+  avatar: { width: 40, height: 40, borderRadius: 20, alignItems: 'center', justifyContent: 'center' },
+  avatarText: { fontSize: 17, fontWeight: '800', color: '#fff' },
   friendInfo: { flex: 1, minWidth: 0 },
-  friendName: { fontSize: 15, fontWeight: '600', color: '#000' },
-  friendAmount: { fontSize: 13, color: MUTED, marginTop: 1 },
-  remindButton: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 4,
-    paddingVertical: 7,
-    paddingHorizontal: 10,
-    borderRadius: 12,
-    backgroundColor: PURPLE_TINT,
-  },
-  remindButtonText: { fontSize: 13, fontWeight: '700', color: PURPLE },
-  paidToggle: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'center',
-    gap: 4,
-    minWidth: 82,
-    borderWidth: 1,
-    borderColor: '#C9C9C9',
-    borderRadius: 12,
-    paddingVertical: 6,
-    paddingHorizontal: 10,
-  },
-  paidToggleOn: { borderColor: GREEN, backgroundColor: GREEN_TINT },
-  paidToggleText: { fontSize: 13, fontWeight: '700', color: MUTED },
-  paidToggleTextOn: { color: GREEN },
-  footerText: { fontSize: 13, color: MUTED },
-  noPayerBlock: { flexDirection: 'row', alignItems: 'center', gap: 12 },
-  noPayerText: { flex: 1, fontSize: 14, color: MUTED },
-  openButton: {
-    paddingVertical: 8,
-    paddingHorizontal: 16,
-    borderRadius: 12,
-    backgroundColor: PURPLE,
-  },
-  openButtonText: { fontSize: 14, fontWeight: '700', color: '#fff' },
+  friendName: { fontSize: 17, fontWeight: '800', color: INK },
+  friendStatus: { fontSize: 14, fontWeight: '800' },
+  friendAmount: { fontSize: 17, fontWeight: '800', color: INK },
+  friendAmountPaid: { color: MUTED },
+  checkCircle: { width: 36, height: 36, borderRadius: 18, backgroundColor: GREEN_TINT, alignItems: 'center', justifyContent: 'center' },
+  markPaidButton: { height: 44, paddingHorizontal: 16, borderRadius: 16, backgroundColor: PURPLE, alignItems: 'center', justifyContent: 'center' },
+  markPaidText: { fontSize: 15, fontWeight: '800', color: ON_PURPLE },
+  remindButton: { height: 44, paddingHorizontal: 16, borderRadius: 16, borderWidth: 2, borderColor: PURPLE, backgroundColor: SURFACE, alignItems: 'center', justifyContent: 'center' },
+  remindText: { fontSize: 15, fontWeight: '800', color: PURPLE_DARK },
+  openLink: { flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 6, paddingTop: 12, borderTopWidth: 1, borderTopColor: BORDER },
+  openLinkText: { fontSize: 16, fontWeight: '800', color: PURPLE_DARK },
+  badgeMuted: { backgroundColor: TRACK },
+  payerPrompt: { fontSize: 15, fontWeight: '800', color: INK },
+  payerChips: { flexDirection: 'row', flexWrap: 'wrap', gap: 8 },
+  payerChip: { flexDirection: 'row', alignItems: 'center', gap: 8, height: 40, paddingLeft: 5, paddingRight: 14, borderRadius: 20, borderWidth: 2, borderColor: PURPLE, backgroundColor: SURFACE },
+  payerChipAvatar: { width: 28, height: 28, borderRadius: 14, alignItems: 'center', justifyContent: 'center' },
+  payerChipInitial: { fontSize: 13, fontWeight: '800', color: '#fff' },
+  payerChipText: { fontSize: 15, fontWeight: '800', color: PURPLE_DARK },
+  settledCard: { flexDirection: 'row', alignItems: 'center', gap: 14, paddingVertical: 14, paddingHorizontal: 16, borderRadius: 24, borderWidth: 1, borderColor: BORDER, backgroundColor: SURFACE },
+  settledCheck: { width: 36, height: 36, borderRadius: 18, backgroundColor: GREEN_TINT, alignItems: 'center', justifyContent: 'center' },
+  settledCopy: { flex: 1, minWidth: 0 },
+  settledTitle: { fontSize: 17, fontWeight: '800', color: INK },
+  settledSub: { fontSize: 13, color: MUTED },
+  settledAmount: { fontSize: 17, fontWeight: '800', color: MUTED },
   snackbar: {
     position: 'absolute',
     left: 20,
@@ -403,10 +500,12 @@ const styles = StyleSheet.create({
     gap: 12,
     paddingVertical: 14,
     paddingHorizontal: 16,
-    borderRadius: 14,
-    backgroundColor: '#222',
+    borderRadius: 18,
+    backgroundColor: ON_PURPLE,
+    borderWidth: 1,
+    borderColor: BORDER,
   },
   snackbarText: { flex: 1, fontSize: 14, color: '#fff' },
-  snackbarUndo: { fontSize: 14, fontWeight: '700', color: '#C9BDFB' },
+  snackbarUndo: { fontSize: 14, fontWeight: '800', color: '#C9BDFB' },
   pressed: { opacity: 0.65 },
 });

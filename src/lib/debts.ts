@@ -286,3 +286,30 @@ export function overallProgress(sections: BillSection[]) {
   });
   return { paid: paid / 100, total: total / 100, fraction: total === 0 ? 0 : paid / total };
 }
+
+const isYouId = (id: string, name: string) => id === 'you' || name.trim().toLowerCase() === 'you';
+
+export type GroupStatus =
+  | { kind: 'owed'; amount: number }
+  | { kind: 'owe'; amount: number }
+  | { kind: 'settled' }
+  | { kind: 'none' };
+
+export function groupStatus(bills: BillLike[]): GroupStatus {
+  if (bills.length === 0) return { kind: 'none' };
+  let owed = 0;
+  let owe = 0;
+  billSections(bills).forEach((section) => {
+    if (!section.payer) return;
+    if (isYouId(section.payer.id, section.payer.name)) {
+      owed += toCents(section.remaining);
+      return;
+    }
+    section.friends.forEach((friend) => {
+      if (!friend.paidBack && isYouId(friend.id, friend.name)) owe += toCents(friend.amount);
+    });
+  });
+  if (owed > 0) return { kind: 'owed', amount: owed / 100 };
+  if (owe > 0) return { kind: 'owe', amount: owe / 100 };
+  return { kind: 'settled' };
+}
