@@ -1,10 +1,12 @@
 import { StyleSheet, Text, View } from 'react-native';
 
+import { useMemo } from 'react';
 import { money, pctOf } from '../lib/format';
 import type { ParsedReceipt } from '../lib/parseReceipt';
 import type { PersonBreakdown } from '../lib/receiptSession';
+import { useColors, type Colors } from '../lib/theme';
+import { useT } from '../lib/i18n';
 
-const MUTED = '#8A8A8A';
 
 function portionLabel(name: string, shares: number, outOf: number) {
   if (shares >= outOf) return name;
@@ -19,14 +21,17 @@ export default function SplitBreakdown({
   // Used for the service/tax rates; omitted when the receipt is no longer available.
   receipt: ParsedReceipt | null;
 }) {
-  const share = `${Math.round(breakdown.proportion * 100)}% of items`;
+  const t = useT();
+  const colors = useColors();
+  const styles = useMemo(() => makeStyles(colors), [colors]);
+  const share = t('{n}% of items', { n: Math.round(breakdown.proportion * 100) });
   const servicePct = receipt ? pctOf(receipt.serviceCharge, receipt.subtotal) : null;
   const taxPct = receipt ? pctOf(receipt.tax, receipt.subtotal) : null;
   const adjustments = [
-    { label: `Discount · ${share}`, value: -breakdown.discount },
-    { label: `Service${servicePct ? ` ${servicePct}%` : ''} · ${share}`, value: breakdown.serviceCharge },
-    { label: `Tax${taxPct ? ` ${taxPct}%` : ''} · ${share}`, value: breakdown.tax },
-    { label: 'Rounding', value: breakdown.rounding },
+    { label: `${t('Discount')} · ${share}`, value: -breakdown.discount },
+    { label: `${t('Service')}${servicePct ? ` ${servicePct}%` : ''} · ${share}`, value: breakdown.serviceCharge },
+    { label: `${t('Tax')}${taxPct ? ` ${taxPct}%` : ''} · ${share}`, value: breakdown.tax },
+    { label: t('Rounding'), value: breakdown.rounding },
   ].filter((row) => row.value !== 0);
 
   return (
@@ -50,12 +55,13 @@ export default function SplitBreakdown({
   );
 }
 
-const styles = StyleSheet.create({
+const makeStyles = ({ MUTED, BORDER  }: Colors) =>
+  StyleSheet.create({
   box: {
     marginBottom: 10,
     paddingLeft: 12,
     borderLeftWidth: 2,
-    borderLeftColor: '#E5E5E5',
+    borderLeftColor: BORDER,
     gap: 4,
   },
   row: {

@@ -1,244 +1,364 @@
 import { Ionicons } from '@expo/vector-icons';
 import { useLocalSearchParams, useRouter } from 'expo-router';
-import { useState } from 'react';
+import { useMemo, useState } from 'react';
+import { KeyboardAvoidingView, Platform, Pressable, ScrollView, StyleSheet, Text, TextInput, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
-import { Pressable, ScrollView, StyleSheet, Text, TextInput, View } from 'react-native';
 
-import { getGroup, updateGroup } from '../lib/groups';
+import { getGroup, getGroups } from '../lib/groups';
 import { goBack } from '../lib/navigation';
 import { setGroupSettlementSetup } from '../lib/receiptSession';
+import { useColors, type Colors } from '../lib/theme';
+import { useT } from '../lib/i18n';
 
-const PURPLE = '#9B87F0';
-const PILL_GRAY = '#EFEFEF';
+const AVATAR_COLORS = ['#5B3FD8', '#0F766E', '#B45309', '#C2185B', '#0369A1', '#7C3AED'];
+const YOU_ID = 'you';
 
-type MemberRow = { id: string | null; name: string };
+type MemberRow = { key: string; id: string | null; name: string; billOnly: boolean; you?: boolean };
+
+let rowCounter = 0;
+const nextKey = () => `row-${rowCounter++}`;
+
+const youRow = (): MemberRow => ({ key: nextKey(), id: YOU_ID, name: 'You', billOnly: false, you: true });
+
+const rowsForGroup = (groupId: string | null): MemberRow[] => {
+  const group = groupId ? getGroup(groupId) : undefined;
+  const rows = (group?.members ?? []).map((member) => ({
+    key: nextKey(),
+    id: member.id,
+    name: member.name,
+    billOnly: false,
+    you: member.id === YOU_ID || member.name.trim().toLowerCase() === 'you',
+  }));
+  const hasYou = rows.some((row) => row.you);
+  return hasYou ? rows : [youRow(), ...rows];
+};
+
+const isYou = (row: MemberRow) => Boolean(row.you);
+const initialOf = (name: string, index: number) => name.trim().charAt(0).toUpperCase() || String(index + 1);
 
 export default function CreateGroupSettlementScreen() {
+  const t = useT();
+  const colors = useColors();
+  const { PURPLE_DARK, INK, MUTED } = colors;
+  const styles = useMemo(() => makeStyles(colors), [colors]);
   const router = useRouter();
   const { groupId } = useLocalSearchParams<{ groupId?: string }>();
-  const existingGroup = groupId ? getGroup(groupId) : undefined;
-  const isExistingGroup = Boolean(existingGroup);
-  const [settlementName, setSettlementName] = useState('');
-  const [groupName, setGroupName] = useState(existingGroup?.name ?? '');
-  const [members, setMembers] = useState<MemberRow[]>(
-    () => existingGroup?.members?.map((member) => ({ id: member.id, name: member.name })) ?? [],
-  );
+  const initialGroupId = groupId && getGroup(groupId) ? groupId : null;
+  const groups = getGroups();
 
-  const addMember = () => setMembers((prev) => [...prev, { id: null, name: '' }]);
-  const updateMember = (index: number, text: string) =>
-    setMembers((prev) => prev.map((m, i) => (i === index ? { ...m, name: text } : m)));
-  const removeMember = (index: number) =>
-    setMembers((prev) => prev.filter((_, i) => i !== index));
+  const [settlementName, setSettlementName] = useState('');
+  const [selectedGroupId, setSelectedGroupId] = useState<string | null>(initialGroupId);
+  const [newGroupName, setNewGroupName] = useState('');
+  const [members, setMembers] = useState<MemberRow[]>(() => rowsForGroup(initialGroupId));
+
+  const selectedGroup = selectedGroupId ? getGroup(selectedGroupId) : undefined;
+  const totalMembers = selectedGroup ? rowsForGroup(selectedGroup.id).length : members.length;
+
+  const selectGroup = (id: string | null) => {
+    if (id === selectedGroupId) return;
+    setSelectedGroupId(id);
+    setMembers(rowsForGroup(id));
+  };
+
+  const [editingYou, setEditingYou] = useState(false);
+  const [youBackup, setYouBackup] = useState('You');
+
+  const startEditingYou = (name: string) => {
+    setYouBackup(name);
+    setEditingYou(true);
+  };
+  const finishEditingYou = (key: string) => {
+    setEditingYou(false);
+    setMembers((prev) =>
+      prev.map((m) => (m.key === key && !m.name.trim() ? { ...m, name: youBackup } : m)),
+    );
+  };
+
+  const addBillOnly = () =>
+    setMembers((prev) => [...prev, { key: nextKey(), id: null, name: '', billOnly: true }]);
+  const updateMember = (key: string, text: string) =>
+    setMembers((prev) => prev.map((m) => (m.key === key ? { ...m, name: text } : m)));
+  const removeMember = (key: string) => setMembers((prev) => prev.filter((m) => m.key !== key));
 
   const missingHint = !settlementName.trim()
-    ? 'Enter a settlement name to continue.'
-    : !groupName.trim()
-      ? 'Enter a group name to continue.'
-      : isExistingGroup && !existingGroup?.members?.length
-        ? 'Add members to this group from the Members button first.'
-        : !isExistingGroup && members.length === 0
-          ? 'Add at least one member to continue.'
-          : members.some((member) => !member.name.trim())
-            ? 'Fill in every member name or remove the empty ones.'
-            : null;
+    ? t('Enter a settlement name to continue.')
+    : !selectedGroup && !newGroupName.trim()
+      ? t('Enter a group name to continue.')
+      : members.some((member) => !member.name.trim())
+        ? t('Fill in every name or remove the empty ones.')
+        : members.length < 2
+          ? t('Add at least one more person to continue.')
+          : null;
   const isValid = missingHint === null;
 
   const handleContinue = () => {
     if (!isValid) return;
-    const finalMembers = existingGroup
-      ? (existingGroup.members ?? [])
-      : members.map((member, index) => ({
-          id: member.id ?? `p${index + 1}`,
-          name: member.name.trim(),
-        }));
-    const finalGroupName = groupName.trim();
-    if (existingGroup) {
-      updateGroup(existingGroup.id, { name: finalGroupName, members: finalMembers });
-    }
+    const used = new Set(members.map((member) => member.id).filter(Boolean));
+    let counter = 1;
+    const finalMembers = members.map((member) => {
+      if (member.id) return { id: member.id, name: member.name.trim() };
+      while (used.has(`p${counter}`)) counter += 1;
+      const id = `p${counter}`;
+      used.add(id);
+      return { id, name: member.name.trim() };
+    });
     setGroupSettlementSetup({
       settlementName: settlementName.trim(),
-      groupName: finalGroupName,
+      groupName: selectedGroup ? selectedGroup.name : newGroupName.trim(),
       members: finalMembers,
-      groupId: existingGroup?.id,
+      groupId: selectedGroup?.id,
     });
     router.push('/upload-file?flow=group');
   };
 
   return (
     <SafeAreaView style={styles.safeArea}>
-      <View style={styles.page}>
+      <KeyboardAvoidingView style={styles.page} behavior={Platform.OS === 'ios' ? 'padding' : undefined}>
         <View style={styles.header}>
-          <Pressable onPress={() => goBack(router)} hitSlop={12}>
-            <Ionicons name="chevron-back" size={26} color="#000" />
+          <Pressable accessibilityRole="button" accessibilityLabel={t('Go back')} onPress={() => goBack(router)} hitSlop={12}>
+            <Ionicons name="chevron-back" size={28} color={INK} />
           </Pressable>
-          <Text style={styles.headerTitle}>
-            {isExistingGroup ? 'Create New Settlement' : 'Create Group Settlement'}
-          </Text>
+          <View>
+            <Text style={styles.stepLabel}>{t('Group settlement · Step {n} of 4', { n: 1 })}</Text>
+            <Text style={styles.title}>{t('New settlement')}</Text>
+          </View>
         </View>
 
-        <View style={styles.divider} />
+        <View style={styles.progressTrack}>
+          <View style={styles.progressFill} />
+        </View>
 
         <ScrollView contentContainerStyle={styles.content} keyboardShouldPersistTaps="handled">
-          <Text style={styles.fieldLabel}>Settlement name :</Text>
+          <Text style={styles.fieldLabel}>{t('Settlement name')}</Text>
           <TextInput
-            style={styles.pillInput}
+            style={styles.input}
             value={settlementName}
             onChangeText={setSettlementName}
-            placeholder="Enter your settlement name"
-            placeholderTextColor="#999"
-            textAlign="center"
+            placeholder={t('e.g. Mamak Corner')}
+            placeholderTextColor={colors.MUTED}
           />
 
-          <Text style={styles.fieldLabel}>Group name:</Text>
-          <TextInput
-            style={styles.pillInput}
-            value={groupName}
-            onChangeText={setGroupName}
-            placeholder="Enter Group Name"
-            placeholderTextColor="#999"
-            textAlign="center"
-          />
-
-          {!isExistingGroup && (
-            <>
-              <Text style={styles.fieldLabel}>Add members :</Text>
-              <View style={styles.membersList}>
-                {members.map((member, index) => (
-                  <View key={member.id ?? `new-${index}`} style={styles.memberRow}>
-                    <TextInput
-                      style={[styles.pillInput, styles.memberInput]}
-                      value={member.name}
-                      onChangeText={(text) => updateMember(index, text)}
-                      placeholder="Member name"
-                      placeholderTextColor="#999"
-                      textAlign="center"
-                    />
-                    <Pressable onPress={() => removeMember(index)} hitSlop={8} style={styles.removeMemberButton}>
-                      <Ionicons name="close-circle" size={20} color="#999" />
-                    </Pressable>
-                  </View>
-                ))}
-                <Pressable style={styles.addMemberPill} onPress={addMember}>
-                  <Ionicons name="add" size={22} color="#000" />
+          <Text style={[styles.fieldLabel, styles.sectionGap]}>{t('Group')}</Text>
+          <View style={styles.chips}>
+            {groups.map((group) => {
+              const selected = group.id === selectedGroupId;
+              return (
+                <Pressable
+                  key={group.id}
+                  accessibilityRole="button"
+                  accessibilityState={{ selected }}
+                  onPress={() => selectGroup(group.id)}
+                  style={[styles.chip, selected && styles.chipSelected]}
+                >
+                  {selected && <Ionicons name="checkmark" size={20} color={colors.ON_PURPLE} />}
+                  <Text style={[styles.chipText, selected && styles.chipTextSelected]}>{group.name}</Text>
                 </Pressable>
-              </View>
-            </>
+              );
+            })}
+            <Pressable
+              accessibilityRole="button"
+              accessibilityState={{ selected: !selectedGroup }}
+              onPress={() => selectGroup(null)}
+              style={[styles.chip, styles.chipNew, !selectedGroup && styles.chipSelected]}
+            >
+              {selectedGroup ? (
+                <Ionicons name="add" size={22} color={PURPLE_DARK} />
+              ) : (
+                <Ionicons name="checkmark" size={20} color={colors.ON_PURPLE} />
+              )}
+              <Text style={[styles.chipText, !selectedGroup && styles.chipTextSelected]}>{t('New group')}</Text>
+            </Pressable>
+          </View>
+
+          {!selectedGroup && (
+            <TextInput
+              style={[styles.input, styles.groupNameInput]}
+              value={newGroupName}
+              onChangeText={setNewGroupName}
+              placeholder={t('Group name')}
+              placeholderTextColor={colors.MUTED}
+            />
           )}
+
+          <View style={[styles.membersHeader, styles.sectionGap]}>
+            <Text style={styles.fieldLabelPlain}>{t('Who is splitting?')}</Text>
+            <Text style={styles.countText}>
+              {t('{n} of {total} members', { n: members.length, total: Math.max(totalMembers, members.length) })}
+            </Text>
+          </View>
+          <View style={styles.memberCard}>
+            {members.map((member, index) => {
+              const you = isYou(member);
+              return (
+                <View key={member.key} style={styles.memberRow}>
+                  <View style={[styles.avatar, { backgroundColor: AVATAR_COLORS[index % AVATAR_COLORS.length] }]}>
+                    <Text style={styles.avatarText}>{initialOf(member.name, index)}</Text>
+                  </View>
+                  {member.billOnly || (you && editingYou) ? (
+                    <TextInput
+                      style={styles.memberInput}
+                      value={member.name}
+                      onChangeText={(text) => updateMember(member.key, text)}
+                      onBlur={you ? () => finishEditingYou(member.key) : undefined}
+                      onSubmitEditing={you ? () => finishEditingYou(member.key) : undefined}
+                      placeholder={t('Name')}
+                      placeholderTextColor={colors.MUTED}
+                      returnKeyType="done"
+                      autoFocus
+                    />
+                  ) : (
+                    <Text style={styles.memberName}>{member.name}</Text>
+                  )}
+                  {you ? (
+                    <>
+                      {!editingYou && (
+                        <Pressable
+                          accessibilityRole="button"
+                          accessibilityLabel={t('Change your name')}
+                          onPress={() => startEditingYou(member.name)}
+                          hitSlop={8}
+                        >
+                          <Ionicons name="pencil-outline" size={22} color={PURPLE_DARK} />
+                        </Pressable>
+                      )}
+                      <View style={styles.youBadge}>
+                        <Text style={styles.youBadgeText}>{t('You')}</Text>
+                      </View>
+                    </>
+                  ) : (
+                    <Pressable
+                      accessibilityRole="button"
+                      accessibilityLabel={t('Remove {name}', { name: member.name || t('person') })}
+                      onPress={() => removeMember(member.key)}
+                      hitSlop={10}
+                      style={styles.removeButton}
+                    >
+                      <Ionicons name="close" size={26} color={MUTED} />
+                    </Pressable>
+                  )}
+                </View>
+              );
+            })}
+          </View>
+
+          <Pressable accessibilityRole="button" style={styles.addButton} onPress={addBillOnly}>
+            <Ionicons name="add" size={26} color={PURPLE_DARK} />
+            <Text style={styles.addButtonText}>{t('Add a member')}</Text>
+          </Pressable>
         </ScrollView>
 
         <View style={styles.footer}>
           {missingHint && <Text style={styles.hintText}>{missingHint}</Text>}
           <Pressable
+            accessibilityRole="button"
             style={[styles.continueButton, !isValid && styles.continueButtonDisabled]}
             onPress={handleContinue}
             disabled={!isValid}
           >
-            <Text style={styles.continueButtonText}>Continue</Text>
+            <Text style={styles.continueText}>{t('Continue')}</Text>
           </Pressable>
         </View>
-      </View>
+      </KeyboardAvoidingView>
     </SafeAreaView>
   );
 }
 
-const styles = StyleSheet.create({
-  safeArea: {
-    flex: 1,
-    backgroundColor: '#fff',
-    alignItems: 'center',
-  },
-  page: {
-    flex: 1,
-    width: '100%',
-    maxWidth: 480,
-  },
+const makeStyles = ({ PURPLE_DARK, PURPLE_TINT, PURPLE, ON_PURPLE, INK, MUTED, BORDER, TRACK, BG, SURFACE  }: Colors) =>
+  StyleSheet.create({
+  safeArea: { flex: 1, backgroundColor: BG, alignItems: 'center' },
+  page: { flex: 1, width: '100%', maxWidth: 480 },
   header: {
     flexDirection: 'row',
     alignItems: 'center',
-    gap: 12,
+    gap: 14,
     paddingHorizontal: 20,
-    paddingVertical: 16,
+    paddingTop: 12,
+    paddingBottom: 14,
   },
-  headerTitle: {
+  stepLabel: { fontSize: 14, fontWeight: '700', color: MUTED },
+  title: { fontSize: 28, fontWeight: '800', color: INK, letterSpacing: -0.6 },
+  progressTrack: { height: 8, borderRadius: 4, backgroundColor: TRACK, overflow: 'hidden', marginHorizontal: 20, marginBottom: 16 },
+  progressFill: { width: '25%', height: '100%', borderRadius: 4, backgroundColor: PURPLE },
+  content: { paddingHorizontal: 20, paddingBottom: 24 },
+  fieldLabel: { fontSize: 16, fontWeight: '800', color: MUTED, marginBottom: 10, marginTop: 8 },
+  fieldLabelPlain: { fontSize: 16, fontWeight: '800', color: MUTED },
+  sectionGap: { marginTop: 22 },
+  input: {
+    height: 58,
+    borderRadius: 24,
+    borderWidth: 2,
+    borderColor: BORDER,
+    backgroundColor: SURFACE,
+    paddingHorizontal: 22,
     fontSize: 20,
-    fontWeight: '700',
-    color: '#000',
+    color: INK,
   },
-  divider: {
-    height: 2,
-    backgroundColor: '#000',
-    marginHorizontal: 20,
+  groupNameInput: { marginTop: 14 },
+  chips: { flexDirection: 'row', flexWrap: 'wrap', gap: 14 },
+  chip: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+    height: 54,
+    paddingHorizontal: 26,
+    borderRadius: 27,
+    borderWidth: 2,
+    borderColor: PURPLE,
+    backgroundColor: SURFACE,
   },
-  content: {
-    paddingHorizontal: 20,
-    paddingTop: 24,
-    paddingBottom: 24,
+  chipSelected: { backgroundColor: PURPLE },
+  chipNew: { borderStyle: 'dashed' },
+  chipText: { fontSize: 20, fontWeight: '800', color: PURPLE_DARK },
+  chipTextSelected: { color: ON_PURPLE },
+  membersHeader: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginBottom: 10 },
+  countText: { fontSize: 16, color: MUTED },
+  memberCard: {
+    borderRadius: 28,
+    borderWidth: 1,
+    borderColor: BORDER,
+    backgroundColor: SURFACE,
+    paddingVertical: 12,
+    paddingHorizontal: 16,
   },
-  fieldLabel: {
-    fontSize: 15,
-    fontWeight: '600',
-    color: '#000',
-    marginBottom: 8,
-  },
-  pillInput: {
-    backgroundColor: PILL_GRAY,
-    borderRadius: 24,
-    paddingVertical: 14,
-    paddingHorizontal: 20,
-    fontSize: 16,
-    color: '#000',
-    marginBottom: 24,
-    boxShadow: '0px 2px 4px rgba(0, 0, 0, 0.1)',
-    elevation: 2,
-  },
-  membersList: {
-    gap: 12,
-  },
-  memberRow: {
-    position: 'relative',
-    justifyContent: 'center',
-  },
+  memberRow: { flexDirection: 'row', alignItems: 'center', gap: 16, paddingVertical: 12 },
+  avatar: { width: 48, height: 48, borderRadius: 24, alignItems: 'center', justifyContent: 'center' },
+  avatarText: { fontSize: 20, fontWeight: '800', color: '#fff' },
+  memberName: { flex: 1, fontSize: 22, fontWeight: '700', color: INK },
   memberInput: {
-    marginBottom: 0,
+    flex: 1,
+    height: 44,
+    borderRadius: 14,
+    borderWidth: 2,
+    borderColor: BORDER,
+    paddingHorizontal: 14,
+    fontSize: 20,
+    color: INK,
   },
-  removeMemberButton: {
-    position: 'absolute',
-    right: 8,
-  },
-  addMemberPill: {
-    backgroundColor: PILL_GRAY,
-    borderRadius: 24,
-    paddingVertical: 10,
+  youBadge: { backgroundColor: PURPLE_TINT, borderRadius: 16, paddingHorizontal: 18, paddingVertical: 8 },
+  youBadgeText: { fontSize: 18, fontWeight: '800', color: PURPLE_DARK },
+  removeButton: { paddingHorizontal: 10 },
+  addButton: {
+    flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'center',
-    boxShadow: '0px 2px 4px rgba(0, 0, 0, 0.1)',
-    elevation: 2,
+    gap: 10,
+    height: 64,
+    marginTop: 20,
+    borderRadius: 24,
+    borderWidth: 2,
+    borderStyle: 'dashed',
+    borderColor: PURPLE,
   },
-  footer: {
-    paddingHorizontal: 20,
-    paddingBottom: 24,
-  },
+  addButtonText: { fontSize: 20, fontWeight: '800', color: PURPLE_DARK },
+  footer: { paddingHorizontal: 20, paddingTop: 16, paddingBottom: 24, borderTopWidth: 1, borderTopColor: BORDER },
+  hintText: { fontSize: 13, color: MUTED, textAlign: 'center', marginBottom: 12 },
   continueButton: {
     backgroundColor: PURPLE,
-    borderRadius: 16,
-    borderWidth: 1,
-    borderColor: '#000',
-    paddingVertical: 20,
+    borderRadius: 24,
+    paddingVertical: 24,
     alignItems: 'center',
     justifyContent: 'center',
   },
-  continueButtonDisabled: {
-    opacity: 0.5,
-  },
-  hintText: {
-    fontSize: 13,
-    color: '#8A8A8A',
-    textAlign: 'center',
-    marginBottom: 12,
-  },
-  continueButtonText: {
-    fontSize: 17,
-    fontWeight: '700',
-    color: '#fff',
-  },
+  continueButtonDisabled: { opacity: 0.5 },
+  continueText: { fontSize: 20, fontWeight: '800', color: ON_PURPLE },
 });

@@ -1,10 +1,11 @@
 import { Ionicons } from '@expo/vector-icons';
 import { useRouter } from 'expo-router';
-import { useEffect, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
 import { goBack } from '../lib/navigation';
+import { groupStep } from '../lib/flowSteps';
 import type { ParsedReceipt } from '../lib/parseReceipt';
 import {
   getGroupSettlementSetup,
@@ -15,14 +16,9 @@ import {
   type Person,
 } from '../lib/receiptSession';
 import { computeSettlement, itemShareCost, totalSharesByItem } from '../lib/settlement';
+import { useColors, type Colors } from '../lib/theme';
+import { useT } from '../lib/i18n';
 
-const PURPLE = '#9B87F0';
-const PURPLE_DARK = '#5B3FD8';
-const PURPLE_TINT = '#F0ECFD';
-const INK = '#1A1530';
-const MUTED = '#6B6880';
-const BORDER = '#E6E3F0';
-const TRACK = '#EFECF8';
 const AVATAR_COLORS = ['#5B3FD8', '#0F766E', '#B45309', '#C2185B', '#0369A1', '#7C3AED'];
 
 function money(value: number) {
@@ -30,6 +26,10 @@ function money(value: number) {
 }
 
 export default function ItemQuantitiesScreen() {
+  const t = useT();
+  const colors = useColors();
+  const { PURPLE_DARK, INK } = colors;
+  const styles = useMemo(() => makeStyles(colors), [colors]);
   const router = useRouter();
   const [receipt, setReceipt] = useState<ParsedReceipt | null>(null);
   const [people, setPeople] = useState<Person[] | null>(null);
@@ -99,33 +99,31 @@ export default function ItemQuantitiesScreen() {
         <View style={styles.header}>
           <Pressable
             accessibilityRole="button"
-            accessibilityLabel="Go back"
+            accessibilityLabel={t('Go back')}
             onPress={() => goBack(router)}
             hitSlop={12}
           >
             <Ionicons name="chevron-back" size={28} color={INK} />
           </Pressable>
           <View>
-            <Text style={styles.stepLabel}>{isGroup ? 'Group settlement' : 'Step 2 of 3'}</Text>
-            <Text style={styles.headerTitle}>How many did they have?</Text>
+            <Text style={styles.stepLabel}>{isGroup ? groupStep(3).label : t('Step {n} of 3', { n: 2 })}</Text>
+            <Text style={styles.headerTitle}>{t('How many did they have?')}</Text>
           </View>
         </View>
 
         <View style={styles.progressTrack}>
-          <View style={styles.progressFill} />
+          <View style={[styles.progressFill, isGroup && { width: groupStep(3).fill }]} />
         </View>
 
         <ScrollView contentContainerStyle={styles.content}>
           <View style={styles.banner}>
             <Ionicons name="information-circle-outline" size={26} color={PURPLE_DARK} />
-            <Text style={styles.bannerText}>
-              Shared items are split by portion. Service charge and tax follow what each person had.
-            </Text>
+            <Text style={styles.bannerText}>{t('Shared items are split by portion. Service charge and tax follow what each person had.')}</Text>
           </View>
 
           {people.map((person, index) => {
             const personAssignments = getPersonAssignments(person.id);
-            const label = person.name.trim() || `Person ${index + 1}`;
+            const label = person.name.trim() || t('Person {n}', { n: index + 1 });
             const subtotal = personAssignments.reduce(
               (sum, a) => sum + getItemLiveCost(a.itemIndex, a.shares),
               0
@@ -141,13 +139,13 @@ export default function ItemQuantitiesScreen() {
                     {label}
                   </Text>
                   <View style={styles.subtotalBlock}>
-                    <Text style={styles.subtotalLabel}>Subtotal</Text>
+                    <Text style={styles.subtotalLabel}>{t('Subtotal')}</Text>
                     <Text style={styles.subtotalValue}>{money(subtotal)}</Text>
                   </View>
                 </View>
 
                 {personAssignments.length === 0 ? (
-                  <Text style={styles.noItemsText}>No items selected</Text>
+                  <Text style={styles.noItemsText}>{t('No items selected')}</Text>
                 ) : (
                   <View style={styles.selectedList}>
                     {personAssignments.map((a, rowIndex) => {
@@ -157,13 +155,13 @@ export default function ItemQuantitiesScreen() {
                           <View style={styles.itemCopy}>
                             <Text style={styles.itemName}>{item.name}</Text>
                             <Text style={styles.itemEach}>
-                              {money(itemShareCost(item, 1, totalShares[a.itemIndex]))} each
+                              {t('{amount} each', { amount: money(itemShareCost(item, 1, totalShares[a.itemIndex])) })}
                             </Text>
                           </View>
                           <View style={styles.stepper}>
                             <Pressable
                               accessibilityRole="button"
-                              accessibilityLabel={`Fewer ${item.name} for ${label}`}
+                              accessibilityLabel={t('Fewer {item} for {name}', { item: item.name, name: label })}
                               style={styles.minus}
                               onPress={() => decrementShare(person.id, a.itemIndex)}
                               hitSlop={6}
@@ -173,12 +171,12 @@ export default function ItemQuantitiesScreen() {
                             <Text style={styles.stepperCount}>{a.shares}</Text>
                             <Pressable
                               accessibilityRole="button"
-                              accessibilityLabel={`More ${item.name} for ${label}`}
+                              accessibilityLabel={t('More {item} for {name}', { item: item.name, name: label })}
                               style={styles.plus}
                               onPress={() => incrementShare(person.id, a.itemIndex)}
                               hitSlop={6}
                             >
-                              <Ionicons name="add" size={20} color={INK} />
+                              <Ionicons name="add" size={20} color={colors.ON_PURPLE} />
                             </Pressable>
                           </View>
                         </View>
@@ -197,7 +195,7 @@ export default function ItemQuantitiesScreen() {
             style={({ pressed }) => [styles.calculateButton, pressed && styles.pressed]}
             onPress={handleCalculate}
           >
-            <Text style={styles.calculateButtonText}>Calculate</Text>
+            <Text style={styles.calculateButtonText}>{t('Calculate')}</Text>
           </Pressable>
         </View>
       </View>
@@ -205,10 +203,11 @@ export default function ItemQuantitiesScreen() {
   );
 }
 
-const styles = StyleSheet.create({
+const makeStyles = ({ PURPLE_TINT, PURPLE, ON_PURPLE, INK, MUTED, BORDER, TRACK, BG, SURFACE  }: Colors) =>
+  StyleSheet.create({
   safeArea: {
     flex: 1,
-    backgroundColor: '#fff',
+    backgroundColor: BG,
     alignItems: 'center',
   },
   page: {
@@ -270,7 +269,7 @@ const styles = StyleSheet.create({
     color: INK,
   },
   card: {
-    backgroundColor: '#fff',
+    backgroundColor: SURFACE,
     borderRadius: 28,
     borderWidth: 1,
     borderColor: BORDER,
@@ -356,7 +355,7 @@ const styles = StyleSheet.create({
     borderRadius: 17,
     borderWidth: 1,
     borderColor: BORDER,
-    backgroundColor: '#fff',
+    backgroundColor: SURFACE,
     alignItems: 'center',
     justifyContent: 'center',
   },
@@ -392,7 +391,7 @@ const styles = StyleSheet.create({
   calculateButtonText: {
     fontSize: 18,
     fontWeight: '800',
-    color: INK,
+    color: ON_PURPLE,
   },
   pressed: {
     opacity: 0.85,

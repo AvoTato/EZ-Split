@@ -1,19 +1,16 @@
 import { Ionicons } from '@expo/vector-icons';
 import { useLocalSearchParams, useRouter } from 'expo-router';
-import { useEffect } from 'react';
-import { Pressable, ScrollView, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
+import { useEffect, useMemo } from 'react';
+import { Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
+import { groupStep } from '../lib/flowSteps';
 import { goBack } from '../lib/navigation';
 import { useReceiptPicker } from '../lib/pickReceipt';
 import { setPickedImage, setSplitSetup } from '../lib/receiptSession';
+import { useColors, type Colors } from '../lib/theme';
+import { useT } from '../lib/i18n';
 
-const PURPLE = '#9B87F0';
-const PURPLE_DARK = '#5B3FD8';
-const PURPLE_TINT = '#F0ECFD';
-const INK = '#1A1530';
-const MUTED = '#6B6880';
-const TRACK = '#EFECF8';
 
 const TIPS = [
   'Good light, no shadows across the text',
@@ -22,21 +19,19 @@ const TIPS = [
 ];
 
 export default function UploadScreen() {
+  const t = useT();
+  const colors = useColors();
+  const { PURPLE_DARK, INK } = colors;
+  const styles = useMemo(() => makeStyles(colors), [colors]);
   const router = useRouter();
   const { flow } = useLocalSearchParams<{ flow?: string }>();
-  const { pick, pickFrom, sheet } = useReceiptPicker();
+  const isGroup = flow === 'group';
+  const { pickFrom } = useReceiptPicker();
 
   useEffect(() => {
     setPickedImage(null);
     setSplitSetup(null);
   }, []);
-
-  const handlePress = async () => {
-    const image = await pick();
-    if (!image) return;
-    setPickedImage(image);
-    router.push('/upload-receipt');
-  };
 
   const handlePickFrom = async (source: 'camera' | 'library') => {
     const image = await pickFrom(source);
@@ -44,28 +39,6 @@ export default function UploadScreen() {
     setPickedImage(image);
     router.push('/upload-receipt');
   };
-
-  if (flow === 'group') {
-    return (
-      <SafeAreaView style={styles.safeArea}>
-        <View style={styles.page}>
-          <View style={styles.header}>
-            <Pressable onPress={() => goBack(router)} hitSlop={12}>
-              <Ionicons name="chevron-back" size={26} color="#000" />
-            </Pressable>
-            <Text style={styles.headerTitle}>Create Group Settlement</Text>
-          </View>
-
-          <View style={styles.container}>
-            <TouchableOpacity style={styles.button} onPress={handlePress} activeOpacity={0.7}>
-              <Text style={styles.buttonText}>Take/Upload Receipt</Text>
-            </TouchableOpacity>
-          </View>
-        </View>
-        {sheet}
-      </SafeAreaView>
-    );
-  }
 
   return (
     <SafeAreaView style={styles.safeArea}>
@@ -77,30 +50,28 @@ export default function UploadScreen() {
         <View style={styles.instantHeader}>
           <Pressable
             accessibilityRole="button"
-            accessibilityLabel="Go back"
+            accessibilityLabel={t('Go back')}
             onPress={() => goBack(router)}
             hitSlop={12}
           >
             <Ionicons name="chevron-back" size={28} color={INK} />
           </Pressable>
           <View>
-            <Text style={styles.stepLabel}>Instant split · Step 1 of 3</Text>
-            <Text style={styles.instantTitle}>Add your receipt</Text>
+            <Text style={styles.stepLabel}>{isGroup ? groupStep(2).label : t('Instant split · Step {n} of 3', { n: 1 })}</Text>
+            <Text style={styles.instantTitle}>{t('Add your receipt')}</Text>
           </View>
         </View>
 
         <View style={styles.progressTrack}>
-          <View style={styles.progressFill} />
+          <View style={[styles.progressFill, isGroup && { width: groupStep(2).fill }]} />
         </View>
 
         <View style={styles.dropZone}>
           <View style={styles.dropIcon}>
-            <Ionicons name="camera-outline" size={40} color={INK} />
+            <Ionicons name="camera-outline" size={40} color={colors.ON_PURPLE} />
           </View>
-          <Text style={styles.dropTitle}>Snap or upload a receipt</Text>
-          <Text style={styles.dropHelp}>
-            Lay it flat so the items and the total are both in the photo.
-          </Text>
+          <Text style={styles.dropTitle}>{t('Snap or upload a receipt')}</Text>
+          <Text style={styles.dropHelp}>{t('Lay it flat so the items and the total are both in the photo.')}</Text>
         </View>
 
         <Pressable
@@ -108,8 +79,8 @@ export default function UploadScreen() {
           style={({ pressed }) => [styles.primaryButton, pressed && styles.pressed]}
           onPress={() => handlePickFrom('camera')}
         >
-          <Ionicons name="camera-outline" size={22} color={INK} />
-          <Text style={styles.primaryText}>Take photo</Text>
+          <Ionicons name="camera-outline" size={22} color={colors.ON_PURPLE} />
+          <Text style={styles.primaryText}>{t('Take photo')}</Text>
         </Pressable>
         <Pressable
           accessibilityRole="button"
@@ -117,7 +88,7 @@ export default function UploadScreen() {
           onPress={() => handlePickFrom('library')}
         >
           <Ionicons name="image-outline" size={22} color={PURPLE_DARK} />
-          <Text style={styles.secondaryText}>Upload from gallery</Text>
+          <Text style={styles.secondaryText}>{t('Upload from gallery')}</Text>
         </Pressable>
 
         <View style={styles.tips}>
@@ -126,7 +97,7 @@ export default function UploadScreen() {
               <View style={styles.tipCheck}>
                 <Ionicons name="checkmark" size={16} color={PURPLE_DARK} />
               </View>
-              <Text style={styles.tipText}>{tip}</Text>
+              <Text style={styles.tipText}>{t(tip)}</Text>
             </View>
           ))}
         </View>
@@ -135,52 +106,13 @@ export default function UploadScreen() {
   );
 }
 
-const styles = StyleSheet.create({
+const makeStyles = ({ PURPLE_DARK, PURPLE_TINT, PURPLE, ON_PURPLE, INK, MUTED, TRACK, PANEL, BG, SURFACE  }: Colors) =>
+  StyleSheet.create({
   safeArea: {
     flex: 1,
-    backgroundColor: '#fff',
+    backgroundColor: BG,
     justifyContent: 'center',
     alignItems: 'center',
-  },
-  container: {
-    flex: 1,
-    justifyContent: 'center',
-    alignItems: 'center',
-  },
-  button: {
-    width: 300,
-    height: 150,
-    backgroundColor: '#eee',
-    justifyContent: 'center',
-    alignItems: 'center',
-    borderRadius: 8,
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 4 },
-    shadowOpacity: 0.2,
-    shadowRadius: 5,
-    elevation: 5,
-  },
-  buttonText: {
-    color: '#000',
-    fontSize: 16,
-    fontWeight: 'bold',
-  },
-  header: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 12,
-    paddingHorizontal: 20,
-    paddingVertical: 16,
-  },
-  headerTitle: {
-    fontSize: 20,
-    fontWeight: '700',
-    color: '#000',
-  },
-  page: {
-    flex: 1,
-    width: '100%',
-    maxWidth: 480,
   },
   scroll: {
     flex: 1,
@@ -225,7 +157,7 @@ const styles = StyleSheet.create({
   dropZone: {
     alignItems: 'center',
     justifyContent: 'center',
-    backgroundColor: '#F8F7FB',
+    backgroundColor: PANEL,
     borderRadius: 28,
     borderWidth: 2,
     borderStyle: 'dashed',
@@ -270,14 +202,14 @@ const styles = StyleSheet.create({
   primaryText: {
     fontSize: 18,
     fontWeight: '800',
-    color: INK,
+    color: ON_PURPLE,
   },
   secondaryButton: {
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'center',
     gap: 10,
-    backgroundColor: '#fff',
+    backgroundColor: SURFACE,
     borderRadius: 18,
     borderWidth: 2,
     borderColor: PURPLE,

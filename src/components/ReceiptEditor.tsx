@@ -1,5 +1,5 @@
 import { Ionicons } from '@expo/vector-icons';
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { Pressable, StyleSheet, Text, TextInput, View } from 'react-native';
 
 import type { ParsedReceipt } from '../lib/parseReceipt';
@@ -13,14 +13,9 @@ import {
   type ReceiptIssue,
   type ReceiptPatch,
 } from '../lib/receiptReview';
+import { useColors, type Colors } from '../lib/theme';
+import { useT } from '../lib/i18n';
 
-const PURPLE = '#9B87F0';
-const PILL_GRAY = '#EFEFEF';
-const MUTED = '#8A8A8A';
-const BORDER = '#E5E5E5';
-const GREEN = '#2E7D32';
-const AMBER = '#B45309';
-const AMBER_TINT = '#FFF7ED';
 
 function money(value: number) {
   return `RM ${value.toFixed(2)}`;
@@ -42,6 +37,10 @@ function MoneyInput({
   onCommit: (value: number | null) => void;
   allowEmpty?: boolean;
 }) {
+  const t = useT();
+  const colors = useColors();
+  const { MUTED } = colors;
+  const styles = useMemo(() => makeStyles(colors), [colors]);
   const [text, setText] = useState(format(value));
   const focused = useRef(false);
 
@@ -61,7 +60,7 @@ function MoneyInput({
 
   return (
     <View style={styles.moneyInputWrap}>
-      <Text style={styles.moneyPrefix}>RM</Text>
+      <Text style={styles.moneyPrefix}>{t('RM')}</Text>
       <TextInput
         style={styles.moneyInput}
         value={text}
@@ -97,6 +96,8 @@ function IssueNotes({
   issues: ReceiptIssue[];
   onPatch: (patch: ReceiptPatch) => void;
 }) {
+  const colors = useColors();
+  const styles = useMemo(() => makeStyles(colors), [colors]);
   return issues.map((issue) => (
     <View key={issue.id} style={styles.issueNote}>
       <Text style={issue.severity === 'warning' ? styles.issueWarningText : styles.issueInfoText}>
@@ -122,6 +123,10 @@ export default function ReceiptEditor({
   onPatch: (patch: ReceiptPatch) => void;
   onDone: () => void;
 }) {
+  const t = useT();
+  const colors = useColors();
+  const { PURPLE, MUTED, GREEN, AMBER } = colors;
+  const styles = useMemo(() => makeStyles(colors), [colors]);
   const issues = checkReceipt(receipt);
   const warningCount = issues.filter((issue) => issue.severity === 'warning').length;
   const itemIssues = (index: number) =>
@@ -132,9 +137,9 @@ export default function ReceiptEditor({
   return (
     <View style={styles.card}>
       <View style={styles.headerRow}>
-        <Text style={styles.headerText}>Editing receipt</Text>
+        <Text style={styles.headerText}>{t('Editing receipt')}</Text>
         <Pressable onPress={onDone} hitSlop={12}>
-          <Text style={styles.doneText}>Done</Text>
+          <Text style={styles.doneText}>{t('Done')}</Text>
         </Pressable>
       </View>
 
@@ -142,13 +147,13 @@ export default function ReceiptEditor({
         <View style={[styles.banner, styles.bannerWarning]}>
           <Ionicons name="warning-outline" size={16} color={AMBER} />
           <Text style={styles.bannerWarningText}>
-            {warningCount === 1 ? '1 thing doesn’t add up' : `${warningCount} things don’t add up`}
+            {warningCount === 1 ? t('1 thing doesn’t add up') : t('{n} things don’t add up', { n: warningCount })}
           </Text>
         </View>
       ) : (
         <View style={[styles.banner, styles.bannerOk]}>
           <Ionicons name="checkmark-circle-outline" size={16} color={GREEN} />
-          <Text style={styles.bannerOkText}>Everything adds up</Text>
+          <Text style={styles.bannerOkText}>{t('Everything adds up')}</Text>
         </View>
       )}
 
@@ -165,13 +170,13 @@ export default function ReceiptEditor({
               style={styles.nameInput}
               value={item.name}
               onChangeText={(name) => onPatch({ type: 'setItem', index, fields: { name } })}
-              placeholder="Item name"
+              placeholder={t('Item name')}
               placeholderTextColor={MUTED}
             />
             <Pressable
               onPress={() => onPatch({ type: 'removeItem', index })}
               hitSlop={8}
-              accessibilityLabel={`Remove ${item.name || `item ${index + 1}`}`}
+              accessibilityLabel={t('Remove {name}', { name: item.name || t('item {n}', { n: index + 1 }) })}
             >
               <Ionicons name="trash-outline" size={18} color={MUTED} />
             </Pressable>
@@ -198,7 +203,7 @@ export default function ReceiptEditor({
               </Pressable>
             </View>
             <Text style={styles.eachText}>
-              {item.qty > 1 ? `${money(unitPrice(item))} each` : ''}
+              {item.qty > 1 ? t('{amount} each', { amount: money(unitPrice(item)) }) : ''}
             </Text>
             <MoneyInput
               value={item.price}
@@ -215,17 +220,17 @@ export default function ReceiptEditor({
         onPress={() => onPatch({ type: 'addItem', item: { name: '', price: 0, qty: 1 } })}
       >
         <Ionicons name="add-circle-outline" size={18} color={PURPLE} />
-        <Text style={styles.addItemText}>Add item</Text>
+        <Text style={styles.addItemText}>{t('Add item')}</Text>
       </Pressable>
 
-      <Text style={styles.itemsSumText}>Items add up to {money(itemsSum(receipt))}</Text>
+      <Text style={styles.itemsSumText}>{t('Items add up to {amount}', { amount: money(itemsSum(receipt)) })}</Text>
 
       <View style={styles.divider} />
 
       {TOTAL_FIELDS.map(({ field, label }) => (
         <View key={field} style={hasWarning(fieldIssues(field)) && styles.flagged}>
           <View style={styles.totalRow}>
-            <Text style={field === 'total' ? styles.totalLabelBold : styles.totalLabel}>{label}</Text>
+            <Text style={field === 'total' ? styles.totalLabelBold : styles.totalLabel}>{t(label)}</Text>
             <MoneyInput
               value={receipt[field]}
               onCommit={(value) => onPatch({ type: 'setField', field, value })}
@@ -239,9 +244,10 @@ export default function ReceiptEditor({
   );
 }
 
-const styles = StyleSheet.create({
+const makeStyles = ({ PURPLE, INK, MUTED, BORDER, SURFACE, PILL_GRAY, GREEN_TINT, GREEN, AMBER_TINT, AMBER  }: Colors) =>
+  StyleSheet.create({
   card: {
-    backgroundColor: '#fff',
+    backgroundColor: SURFACE,
     borderRadius: 16,
     padding: 20,
     boxShadow: '0px 2px 8px rgba(0, 0, 0, 0.08)',
@@ -281,7 +287,7 @@ const styles = StyleSheet.create({
     color: AMBER,
   },
   bannerOk: {
-    backgroundColor: '#F0F7F0',
+    backgroundColor: GREEN_TINT,
   },
   bannerOkText: {
     fontSize: 13,
@@ -340,7 +346,7 @@ const styles = StyleSheet.create({
   nameInput: {
     flex: 1,
     fontSize: 15,
-    color: '#000',
+    color: INK,
     paddingVertical: 4,
   },
   itemBottomRow: {
@@ -365,7 +371,7 @@ const styles = StyleSheet.create({
   stepperCount: {
     fontSize: 15,
     fontWeight: '700',
-    color: '#000',
+    color: INK,
     minWidth: 16,
     textAlign: 'center',
   },
@@ -390,7 +396,7 @@ const styles = StyleSheet.create({
     minWidth: 64,
     fontSize: 15,
     fontWeight: '600',
-    color: '#000',
+    color: INK,
     paddingVertical: 6,
     textAlign: 'right',
   },
@@ -427,6 +433,6 @@ const styles = StyleSheet.create({
   totalLabelBold: {
     fontSize: 17,
     fontWeight: '700',
-    color: '#000',
+    color: INK,
   },
 });

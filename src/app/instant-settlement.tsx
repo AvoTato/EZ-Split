@@ -1,6 +1,6 @@
 import { Ionicons } from '@expo/vector-icons';
 import { useRouter } from 'expo-router';
-import { useEffect, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import {
   KeyboardAvoidingView,
   Platform,
@@ -15,6 +15,7 @@ import { SafeAreaView } from 'react-native-safe-area-context';
 import ReceiptDetectedCard from '../components/ReceiptDetectedCard';
 import ReceiptEditor from '../components/ReceiptEditor';
 import { goBack } from '../lib/navigation';
+import { groupStep } from '../lib/flowSteps';
 import type { ParsedReceipt } from '../lib/parseReceipt';
 import { applyPatch, checkReceipt, type ReceiptPatch } from '../lib/receiptReview';
 import {
@@ -22,15 +23,15 @@ import {
   getParsedReceipt,
   setParsedReceipt,
 } from '../lib/receiptSession';
+import { useColors, type Colors } from '../lib/theme';
+import { useT } from '../lib/i18n';
 
-const PURPLE = '#9B87F0';
-const PURPLE_DARK = '#5B3FD8';
-const INK = '#1A1530';
-const MUTED = '#6B6880';
-const BORDER = '#E6E3F0';
-const TRACK = '#EFECF8';
 
 export default function InstantSettlementScreen() {
+  const t = useT();
+  const colors = useColors();
+  const { PURPLE_DARK, INK } = colors;
+  const styles = useMemo(() => makeStyles(colors), [colors]);
   const router = useRouter();
   const [receipt, setReceipt] = useState<ParsedReceipt | null>(null);
   const [isGroup, setIsGroup] = useState(false);
@@ -74,19 +75,19 @@ export default function InstantSettlementScreen() {
         <View style={styles.header}>
           <Pressable
             accessibilityRole="button"
-            accessibilityLabel="Go back"
+            accessibilityLabel={t('Go back')}
             onPress={() => goBack(router)}
             hitSlop={12}
           >
             <Ionicons name="chevron-back" size={28} color={INK} />
           </Pressable>
           <View style={styles.headerCopy}>
-            {!isGroup && <Text style={styles.stepLabel}>Instant split · Step 1 of 3</Text>}
-            <Text style={styles.headerTitle}>{isGroup ? 'Group Settlement' : 'Check your receipt'}</Text>
+            <Text style={styles.stepLabel}>{isGroup ? groupStep(2).label : t('Instant split · Step {n} of 3', { n: 1 })}</Text>
+            <Text style={styles.headerTitle}>{t('Check your receipt')}</Text>
           </View>
           <Pressable
             accessibilityRole="button"
-            accessibilityLabel="Edit receipt"
+            accessibilityLabel={t('Edit receipt')}
             onPress={() => setEditing(true)}
             style={styles.pencil}
           >
@@ -95,7 +96,7 @@ export default function InstantSettlementScreen() {
         </View>
 
         <View style={styles.progressTrack}>
-          <View style={styles.progressFill} />
+          <View style={[styles.progressFill, isGroup && { width: groupStep(2).fill }]} />
         </View>
 
         <ScrollView contentContainerStyle={styles.content} keyboardShouldPersistTaps="handled">
@@ -117,15 +118,15 @@ export default function InstantSettlementScreen() {
         <View style={styles.footer}>
           {editing ? (
             <Pressable style={styles.doneButton} onPress={() => setEditing(false)}>
-              <Text style={styles.doneButtonText}>Done editing</Text>
+              <Text style={styles.doneButtonText}>{t('Done editing')}</Text>
             </Pressable>
           ) : (
             <View style={styles.footerRow}>
               <Pressable style={styles.editButton} onPress={() => setEditing(true)}>
-                <Text style={styles.editButtonText}>Edit items</Text>
+                <Text style={styles.editButtonText}>{t('Edit items')}</Text>
               </Pressable>
               <Pressable style={styles.doneButton} onPress={handleContinue}>
-                <Text style={styles.doneButtonText}>Looks good</Text>
+                <Text style={styles.doneButtonText}>{t('Looks good')}</Text>
               </Pressable>
             </View>
           )}
@@ -135,10 +136,11 @@ export default function InstantSettlementScreen() {
   );
 }
 
-const styles = StyleSheet.create({
+const makeStyles = ({ PURPLE_DARK, PURPLE, ON_PURPLE, INK, MUTED, BORDER, TRACK, BG, SURFACE  }: Colors) =>
+  StyleSheet.create({
   safeArea: {
     flex: 1,
-    backgroundColor: '#fff',
+    backgroundColor: BG,
     alignItems: 'center',
   },
   page: {
@@ -174,7 +176,7 @@ const styles = StyleSheet.create({
     borderRadius: 24,
     borderWidth: 1,
     borderColor: BORDER,
-    backgroundColor: '#fff',
+    backgroundColor: SURFACE,
     alignItems: 'center',
     justifyContent: 'center',
   },
@@ -212,7 +214,7 @@ const styles = StyleSheet.create({
     borderRadius: 18,
     borderWidth: 2,
     borderColor: PURPLE,
-    backgroundColor: '#fff',
+    backgroundColor: SURFACE,
     paddingVertical: 18,
     alignItems: 'center',
     justifyContent: 'center',
@@ -233,6 +235,6 @@ const styles = StyleSheet.create({
   doneButtonText: {
     fontSize: 18,
     fontWeight: '800',
-    color: INK,
+    color: ON_PURPLE,
   },
 });

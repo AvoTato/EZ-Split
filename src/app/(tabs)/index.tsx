@@ -1,7 +1,7 @@
 import { Ionicons } from '@expo/vector-icons';
 import { Image } from 'expo-image';
 import { useFocusEffect, useRouter } from 'expo-router';
-import { useCallback, useState } from 'react';
+import { useCallback, useMemo, useState } from 'react';
 import { Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
@@ -10,13 +10,10 @@ import { billSections, reminderSessionFor, type BillFriend, type BillSection } f
 import { money } from '../../lib/format';
 import { getGroups } from '../../lib/groups';
 import { setGroupSettlementSetup } from '../../lib/receiptSession';
+import { getSettings } from '../../lib/settings';
+import { useColors, useIsDark, type Colors } from '../../lib/theme';
+import { useT } from '../../lib/i18n';
 
-const PURPLE = '#9B87F0';
-const PURPLE_DARK = '#5B3FD8';
-const PURPLE_TINT = '#F0ECFD';
-const INK = '#1A1530';
-const MUTED = '#6B6880';
-const BORDER = '#E6E3F0';
 const AVATAR_COLORS = ['#C2185B', '#B45309', '#0F766E', '#4338CA', '#7C3AED', '#0369A1'];
 const MAX_ATTENTION = 3;
 
@@ -55,13 +52,20 @@ function loadAttention(): AttentionRow[] {
 }
 
 export default function HomeScreen() {
+  const t = useT();
+  const colors = useColors();
+  const { PURPLE_DARK, INK } = colors;
+  const dark = useIsDark();
+  const styles = useMemo(() => makeStyles(colors), [colors]);
   const router = useRouter();
   const [attention, setAttention] = useState<AttentionRow[]>(loadAttention);
   const [remindFor, setRemindFor] = useState<AttentionRow | null>(null);
+  const [nudge, setNudge] = useState(() => getSettings().nudge);
 
   useFocusEffect(
     useCallback(() => {
       setAttention(loadAttention());
+      setNudge(getSettings().nudge);
     }, []),
   );
 
@@ -78,23 +82,35 @@ export default function HomeScreen() {
         showsVerticalScrollIndicator={false}
       >
         <View style={styles.header}>
-          <Image
-            source={require('../../../assets/images/ezsplit-logo.png')}
-            style={styles.logo}
-            contentFit="contain"
-            contentPosition="left"
-          />
-          <Pressable
-            accessibilityRole="button"
-            accessibilityLabel="Backup"
-            style={styles.cloudButton}
-            onPress={() => router.push('/backup')}
-          >
-            <Ionicons name="cloud-outline" size={26} color={PURPLE_DARK} />
-          </Pressable>
+          <View>
+            <Image
+              source={dark ? require('../../../assets/images/ezsplit-logo-dark.png') : require('../../../assets/images/ezsplit-logo.png')}
+              style={styles.logo}
+              contentFit="contain"
+              contentPosition="left"
+            />
+          </View>
+          <View style={styles.headerButtons}>
+            <Pressable
+              accessibilityRole="button"
+              accessibilityLabel={t('Backup')}
+              style={styles.cloudButton}
+              onPress={() => router.push('/backup')}
+            >
+              <Ionicons name="cloud-outline" size={26} color={PURPLE_DARK} />
+            </Pressable>
+            <Pressable
+              accessibilityRole="button"
+              accessibilityLabel={t('Settings')}
+              style={styles.cloudButton}
+              onPress={() => router.push('/settings')}
+            >
+              <Ionicons name="settings-outline" size={26} color={PURPLE_DARK} />
+            </Pressable>
+          </View>
         </View>
 
-        <Text style={styles.title}>Who are we splitting with?</Text>
+        <Text style={styles.title}>{t('Who are we splitting with?')}</Text>
 
         <View style={styles.hero}>
           <View style={styles.heroTop}>
@@ -102,14 +118,12 @@ export default function HomeScreen() {
               <Ionicons name="camera-outline" size={34} color={INK} />
             </View>
             <View style={styles.heroCopy}>
-              <Text style={styles.heroTitle}>Scan a receipt</Text>
-              <Text style={styles.heroSubtitle}>
-                We read the items so you only pick who had what.
-              </Text>
+              <Text style={styles.heroTitle}>{t('Scan a receipt')}</Text>
+              <Text style={styles.heroSubtitle}>{t('We read the items so you only pick who had what.')}</Text>
             </View>
           </View>
           <Pressable style={styles.heroButton} onPress={startInstant}>
-            <Text style={styles.heroButtonText}>Take or upload photo</Text>
+            <Text style={styles.heroButtonText}>{t('Take or upload photo')}</Text>
           </Pressable>
         </View>
 
@@ -118,24 +132,24 @@ export default function HomeScreen() {
             <View style={styles.cardIcon}>
               <Ionicons name="flash-outline" size={26} color={PURPLE_DARK} />
             </View>
-            <Text style={styles.cardTitle}>Instant split</Text>
-            <Text style={styles.cardSubtitle}>One-off bill, no group needed</Text>
+            <Text style={styles.cardTitle}>{t('Instant split')}</Text>
+            <Text style={styles.cardSubtitle}>{t('One-off bill, no group needed')}</Text>
           </Pressable>
           <Pressable style={styles.card} onPress={() => router.push('/create-group-settlement')}>
             <View style={styles.cardIcon}>
               <Ionicons name="people-outline" size={26} color={PURPLE_DARK} />
             </View>
-            <Text style={styles.cardTitle}>Group split</Text>
-            <Text style={styles.cardSubtitle}>Track who has paid you back</Text>
+            <Text style={styles.cardTitle}>{t('Group split')}</Text>
+            <Text style={styles.cardSubtitle}>{t('Track who has paid you back')}</Text>
           </Pressable>
         </View>
 
-        {attention.length > 0 && (
+        {nudge && attention.length > 0 && (
           <View style={styles.attention}>
             <View style={styles.attentionHeader}>
-              <Text style={styles.attentionTitle}>Needs your attention</Text>
+              <Text style={styles.attentionTitle}>{t('Needs your attention')}</Text>
               <Pressable accessibilityRole="button" onPress={() => router.push('/(tabs)/groups')} hitSlop={8}>
-                <Text style={styles.seeAll}>See all</Text>
+                <Text style={styles.seeAll}>{t('See all')}</Text>
               </Pressable>
             </View>
             {attention.map((row) => (
@@ -145,7 +159,7 @@ export default function HomeScreen() {
                 </View>
                 <View style={styles.attentionCopy}>
                   <Text style={styles.attentionOwes}>
-                    {row.friend.name} owes {row.section.payer.name} {money(row.friend.amount)}
+                    {t('{name} owes {payer} {amount}', { name: row.friend.name, payer: row.section.payer.name, amount: money(row.friend.amount) })}
                   </Text>
                   <Text style={styles.attentionMeta} numberOfLines={1}>
                     {row.section.name} · {row.groupName}
@@ -153,11 +167,11 @@ export default function HomeScreen() {
                 </View>
                 <Pressable
                   accessibilityRole="button"
-                  accessibilityLabel={`Remind ${row.friend.name}`}
+                  accessibilityLabel={t('Remind {name}', { name: row.friend.name })}
                   style={styles.remindButton}
                   onPress={() => setRemindFor(row)}
                 >
-                  <Text style={styles.remindText}>Remind</Text>
+                  <Text style={styles.remindText}>{t('Remind')}</Text>
                 </Pressable>
               </View>
             ))}
@@ -184,10 +198,11 @@ export default function HomeScreen() {
   );
 }
 
-const styles = StyleSheet.create({
+const makeStyles = ({ PURPLE_DARK, PURPLE_TINT, PURPLE, ON_PURPLE, INK, MUTED, BORDER, BG, SURFACE  }: Colors) =>
+  StyleSheet.create({
   safeArea: {
     flex: 1,
-    backgroundColor: '#fff',
+    backgroundColor: BG,
     alignItems: 'center',
   },
   scroll: {
@@ -210,13 +225,17 @@ const styles = StyleSheet.create({
     width: 150,
     height: 48,
   },
+  headerButtons: {
+    flexDirection: 'row',
+    gap: 10,
+  },
   cloudButton: {
     width: 48,
     height: 48,
     borderRadius: 24,
     borderWidth: 1,
     borderColor: BORDER,
-    backgroundColor: '#fff',
+    backgroundColor: SURFACE,
     alignItems: 'center',
     justifyContent: 'center',
   },
@@ -254,17 +273,17 @@ const styles = StyleSheet.create({
   heroTitle: {
     fontSize: 24,
     fontWeight: '800',
-    color: INK,
+    color: ON_PURPLE,
     letterSpacing: -0.5,
   },
   heroSubtitle: {
     fontSize: 16,
     lineHeight: 22,
-    color: INK,
+    color: ON_PURPLE,
     marginTop: 2,
   },
   heroButton: {
-    backgroundColor: '#fff',
+    backgroundColor: SURFACE,
     borderRadius: 999,
     paddingVertical: 18,
     alignItems: 'center',
@@ -282,7 +301,7 @@ const styles = StyleSheet.create({
   },
   card: {
     flex: 1,
-    backgroundColor: '#fff',
+    backgroundColor: SURFACE,
     borderRadius: 24,
     borderWidth: 1,
     borderColor: BORDER,
@@ -333,7 +352,7 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
     gap: 14,
-    backgroundColor: '#fff',
+    backgroundColor: SURFACE,
     borderRadius: 24,
     borderWidth: 1,
     borderColor: BORDER,

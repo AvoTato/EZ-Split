@@ -1,6 +1,6 @@
 import { Ionicons } from '@expo/vector-icons';
 import { useRouter } from 'expo-router';
-import { useEffect, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import {
   KeyboardAvoidingView,
   Platform,
@@ -15,24 +15,20 @@ import { SafeAreaView } from 'react-native-safe-area-context';
 
 import { money } from '../lib/format';
 import { goBack } from '../lib/navigation';
+import { groupStep } from '../lib/flowSteps';
 import type { ParsedReceipt } from '../lib/parseReceipt';
 import {
   getGroupSettlementSetup,
   getParsedReceipt,
+  setGroupSettlementSetup,
   setSettlementSummarySession,
   setSplitSetup,
   type Person,
   type SettlementPerson,
 } from '../lib/receiptSession';
+import { useColors, type Colors } from '../lib/theme';
+import { useT } from '../lib/i18n';
 
-const PURPLE = '#9B87F0';
-const PURPLE_DARK = '#5B3FD8';
-const PURPLE_TINT = '#F0ECFD';
-const INK = '#1A1530';
-const MUTED = '#6B6880';
-const BORDER = '#E6E3F0';
-const TRACK = '#EFECF8';
-const PANEL = '#F8F7FB';
 const AVATAR_COLORS = ['#5B3FD8', '#0F766E', '#B45309', '#C2185B', '#0369A1', '#7C3AED'];
 const MAX_PEOPLE = 20;
 
@@ -44,12 +40,24 @@ function initialOf(name: string, index: number) {
 }
 
 export default function HowManyPeopleScreen() {
+  const t = useT();
+  const colors = useColors();
+  const { PURPLE_DARK, INK, MUTED } = colors;
+  const styles = useMemo(() => makeStyles(colors), [colors]);
   const router = useRouter();
   const [receipt] = useState<ParsedReceipt | null>(() => getParsedReceipt());
-  const [members] = useState<Person[]>(() => getGroupSettlementSetup()?.members ?? []);
+  const [isGroup] = useState(() => (getGroupSettlementSetup()?.members ?? []).length > 0);
   const [mode, setMode] = useState<SplitMode>('equal');
-  const [count, setCount] = useState(() => Math.max(2, members.length));
-  const [names, setNames] = useState<string[]>([]);
+  const nextId = useRef(1000);
+  const [people, setPeople] = useState<Person[]>(() => {
+    const members = getGroupSettlementSetup()?.members ?? [];
+    return members.length > 0
+      ? members
+      : [
+          { id: 'p1', name: 'You' },
+          { id: 'p2', name: '' },
+        ];
+  });
 
   useEffect(() => {
     if (!receipt) router.replace('/upload-receipt');
@@ -57,32 +65,34 @@ export default function HowManyPeopleScreen() {
 
   if (!receipt) return null;
 
-  const isGroup = members.length > 0;
+  const count = people.length;
   const total = receipt.total ?? 0;
-  const rows = Array.from({ length: count }, (_, index) => index);
-  const nameAt = (index: number) => (isGroup ? members[index]?.name ?? '' : names[index] ?? '');
 
   const setNameAt = (index: number, value: string) =>
-    setNames((prev) => {
-      const next = [...prev];
-      while (next.length <= index) next.push('');
-      next[index] = value;
-      return next;
-    });
+    setPeople((prev) => prev.map((person, i) => (i === index ? { ...person, name: value } : person)));
+  const removeAt = (index: number) =>
+    setPeople((prev) => (prev.length > 1 ? prev.filter((_, i) => i !== index) : prev));
+  const addPerson = () =>
+    setPeople((prev) =>
+      prev.length >= MAX_PEOPLE ? prev : [...prev, { id: `n${nextId.current++}`, name: '' }],
+    );
 
   const handleContinue = () => {
+    const setup = getGroupSettlementSetup();
+    if (isGroup && setup) setGroupSettlementSetup({ ...setup, members: people });
     if (mode === 'separate') {
       if (!isGroup) {
-        const people: Person[] = rows.map((index) => ({ id: `p${index + 1}`, name: nameAt(index).trim() }));
-        setSplitSetup({ people });
+        setSplitSetup({
+          people: people.map((person, index) => ({ id: `p${index + 1}`, name: person.name.trim() })),
+        });
       }
       router.push('/who-had-what');
       return;
     }
     const amountPerPerson = total / count;
-    const settlementPeople: SettlementPerson[] = rows.map((index) => ({
-      id: members[index]?.id ?? `e${index + 1}`,
-      name: nameAt(index).trim() || `Person ${index + 1}`,
+    const settlementPeople: SettlementPerson[] = people.map((person, index) => ({
+      id: isGroup ? person.id : `e${index + 1}`,
+      name: person.name.trim() || t('Person {n}', { n: index + 1 }),
       amount: amountPerPerson,
     }));
     setSettlementSummarySession({
@@ -102,20 +112,20 @@ export default function HowManyPeopleScreen() {
         <View style={styles.header}>
           <Pressable
             accessibilityRole="button"
-            accessibilityLabel="Go back"
+            accessibilityLabel={t('Go back')}
             onPress={() => goBack(router)}
             hitSlop={12}
           >
             <Ionicons name="chevron-back" size={28} color={INK} />
           </Pressable>
           <View>
-            {!isGroup && <Text style={styles.stepLabel}>Instant split · Step 2 of 3</Text>}
-            <Text style={styles.title}>{isGroup ? 'Group Settlement' : 'How many people?'}</Text>
+            <Text style={styles.stepLabel}>{isGroup ? groupStep(3).label : t('Instant split · Step {n} of 3', { n: 2 })}</Text>
+            <Text style={styles.title}>{t('How many people?')}</Text>
           </View>
         </View>
 
         <View style={styles.progressTrack}>
-          <View style={styles.progressFill} />
+          <View style={[styles.progressFill, isGroup && { width: groupStep(3).fill }]} />
         </View>
 
         <ScrollView contentContainerStyle={styles.content} keyboardShouldPersistTaps="handled">
@@ -125,52 +135,28 @@ export default function HowManyPeopleScreen() {
               style={[styles.segment, mode === 'equal' && styles.segmentActive]}
               onPress={() => setMode('equal')}
             >
-              <Text style={[styles.segmentText, mode === 'equal' && styles.segmentTextActive]}>
-                Split equally
-              </Text>
+              <Text style={[styles.segmentText, mode === 'equal' && styles.segmentTextActive]}>{t('Split equally')}</Text>
             </Pressable>
             <Pressable
               accessibilityRole="button"
               style={[styles.segment, mode === 'separate' && styles.segmentActive]}
               onPress={() => setMode('separate')}
             >
-              <Text style={[styles.segmentText, mode === 'separate' && styles.segmentTextActive]}>
-                Split separately
-              </Text>
+              <Text style={[styles.segmentText, mode === 'separate' && styles.segmentTextActive]}>{t('Split separately')}</Text>
             </Pressable>
           </View>
 
           <View style={styles.countCard}>
             <View>
-              <Text style={styles.countLabel}>Number of people</Text>
+              <Text style={styles.countLabel}>{t('Number of people')}</Text>
               <Text style={styles.countValue}>{count}</Text>
             </View>
-            {!isGroup && (
-              <View style={styles.stepper}>
-                <Pressable
-                  accessibilityRole="button"
-                  accessibilityLabel="Fewer people"
-                  style={styles.minus}
-                  onPress={() => setCount((value) => Math.max(1, value - 1))}
-                >
-                  <Ionicons name="remove" size={24} color={INK} />
-                </Pressable>
-                <Pressable
-                  accessibilityRole="button"
-                  accessibilityLabel="More people"
-                  style={styles.plus}
-                  onPress={() => setCount((value) => Math.min(MAX_PEOPLE, value + 1))}
-                >
-                  <Ionicons name="add" size={24} color={INK} />
-                </Pressable>
-              </View>
-            )}
           </View>
 
           {mode === 'equal' && (
             <View style={styles.payCard}>
               <View>
-                <Text style={styles.payTitle}>Each person pays</Text>
+                <Text style={styles.payTitle}>{t('Each person pays')}</Text>
                 <Text style={styles.paySub}>
                   {money(total)} ÷ {count}
                 </Text>
@@ -179,29 +165,51 @@ export default function HowManyPeopleScreen() {
             </View>
           )}
 
-          <Text style={styles.namesHeading}>NAMES (OPTIONAL)</Text>
-          {rows.map((index) => (
-            <View key={index} style={styles.nameRow}>
+          <Text style={styles.namesHeading}>{t('NAMES (OPTIONAL)')}</Text>
+          {people.map((person, index) => (
+            <View key={person.id} style={styles.nameRow}>
               <View style={[styles.avatar, { backgroundColor: AVATAR_COLORS[index % AVATAR_COLORS.length] }]}>
-                <Text style={styles.avatarText}>{initialOf(nameAt(index), index)}</Text>
+                <Text style={styles.avatarText}>{initialOf(person.name, index)}</Text>
               </View>
               <TextInput
                 style={styles.nameInput}
-                value={nameAt(index)}
+                value={person.name}
                 onChangeText={(value) => setNameAt(index, value)}
-                placeholder={`Person ${index + 1}`}
+                placeholder={t('Person {n}', { n: index + 1 })}
                 placeholderTextColor={MUTED}
                 editable={!isGroup}
                 autoCapitalize="words"
                 returnKeyType="done"
               />
+              {people.length > 1 && (
+                <Pressable
+                  accessibilityRole="button"
+                  accessibilityLabel={t('Remove {name}', { name: person.name.trim() || t('Person {n}', { n: index + 1 }) })}
+                  onPress={() => removeAt(index)}
+                  hitSlop={8}
+                  style={styles.removeButton}
+                >
+                  <Ionicons name="close" size={24} color={MUTED} />
+                </Pressable>
+              )}
             </View>
           ))}
+
+          {!isGroup && (
+            <Pressable
+              accessibilityRole="button"
+              onPress={addPerson}
+              style={({ pressed }) => [styles.addButton, pressed && styles.pressed]}
+            >
+              <Ionicons name="add" size={26} color={PURPLE_DARK} />
+              <Text style={styles.addButtonText}>{t('Add a member')}</Text>
+            </Pressable>
+          )}
         </ScrollView>
 
         <View style={styles.footer}>
           <Pressable style={styles.continueButton} onPress={handleContinue}>
-            <Text style={styles.continueText}>Continue</Text>
+            <Text style={styles.continueText}>{t('Continue')}</Text>
           </Pressable>
         </View>
       </KeyboardAvoidingView>
@@ -209,10 +217,11 @@ export default function HowManyPeopleScreen() {
   );
 }
 
-const styles = StyleSheet.create({
+const makeStyles = ({ PURPLE_DARK, PURPLE_TINT, PURPLE, ON_PURPLE, INK, MUTED, BORDER, TRACK, PANEL, BG, SURFACE  }: Colors) =>
+  StyleSheet.create({
   safeArea: {
     flex: 1,
-    backgroundColor: '#fff',
+    backgroundColor: BG,
     alignItems: 'center',
   },
   page: {
@@ -273,7 +282,7 @@ const styles = StyleSheet.create({
     borderColor: 'transparent',
   },
   segmentActive: {
-    backgroundColor: '#fff',
+    backgroundColor: SURFACE,
     borderColor: BORDER,
   },
   segmentText: {
@@ -307,28 +316,20 @@ const styles = StyleSheet.create({
     fontWeight: '800',
     color: INK,
   },
-  stepper: {
+  addButton: {
     flexDirection: 'row',
-    gap: 8,
-  },
-  minus: {
-    width: 44,
-    height: 44,
-    borderRadius: 22,
-    borderWidth: 1,
-    borderColor: BORDER,
-    backgroundColor: '#fff',
     alignItems: 'center',
     justifyContent: 'center',
+    gap: 10,
+    height: 64,
+    marginTop: 8,
+    borderRadius: 24,
+    borderWidth: 2,
+    borderStyle: 'dashed',
+    borderColor: PURPLE,
   },
-  plus: {
-    width: 44,
-    height: 44,
-    borderRadius: 22,
-    backgroundColor: PURPLE,
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
+  addButtonText: { fontSize: 20, fontWeight: '800', color: PURPLE_DARK },
+  pressed: { opacity: 0.85 },
   payCard: {
     flexDirection: 'row',
     alignItems: 'center',
@@ -342,17 +343,17 @@ const styles = StyleSheet.create({
   payTitle: {
     fontSize: 18,
     fontWeight: '800',
-    color: INK,
+    color: ON_PURPLE,
   },
   paySub: {
     fontSize: 15,
-    color: INK,
+    color: ON_PURPLE,
     marginTop: 2,
   },
   payAmount: {
     fontSize: 36,
     fontWeight: '800',
-    color: INK,
+    color: ON_PURPLE,
     letterSpacing: -1,
   },
   namesHeading: {
@@ -381,13 +382,19 @@ const styles = StyleSheet.create({
     fontWeight: '800',
     color: '#fff',
   },
+  removeButton: {
+    width: 40,
+    height: 40,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
   nameInput: {
     flex: 1,
     height: 48,
     borderRadius: 14,
     borderWidth: 2,
     borderColor: BORDER,
-    backgroundColor: '#fff',
+    backgroundColor: SURFACE,
     paddingHorizontal: 16,
     fontSize: 18,
     color: INK,
@@ -409,6 +416,6 @@ const styles = StyleSheet.create({
   continueText: {
     fontSize: 18,
     fontWeight: '800',
-    color: INK,
+    color: ON_PURPLE,
   },
 });
